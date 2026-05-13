@@ -12,7 +12,7 @@
 #include <Eigen/Dense>
 
 #include "potential.hpp"
-#include "pow.hpp"
+#include "SelfEnergy.hpp"
 using namespace std;
 
 

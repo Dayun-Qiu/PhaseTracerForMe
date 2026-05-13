@@ -6,12 +6,11 @@
                 "${workspaceFolder}/**",
                 "/home/dayun/PhaseTracerForMe/EffectivePotential/include/effectivepotential/",
                 "/home/dayun/PhaseTracerForMe/include/",
-                "/usr/include/libalglib",
-                "/usr/include/eigen3"
+                "/usr/include/**"
             ],
             "defines": [],
-            "cppStandard": "c++14",
-            "compilerPath": "/usr/bin/g++-14"
+            "cppStandard": "c++17",
+            "compilerPath": "/usr/bin/g++"
         }
     ],
     "version": 4
