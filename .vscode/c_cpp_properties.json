@@ -1,0 +1,18 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${workspaceFolder}/**",
+                "/home/dayun/PhaseTracerForMe/EffectivePotential/include/effectivepotential/",
+                "/home/dayun/PhaseTracerForMe/include/",
+                "/usr/include/libalglib",
+                "/usr/include/eigen3"
+            ],
+            "defines": [],
+            "cppStandard": "c++14",
+            "compilerPath": "/usr/bin/g++-14"
+        }
+    ],
+    "version": 4
+}

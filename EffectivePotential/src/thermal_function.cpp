@@ -58,4 +58,64 @@ double J_F(double x) {
   }
 }
 
+
+// Add overloaded functions to compute first or second derivatives.
+double J_B(double x, int deriv_order) {
+    constexpr double min_x = -3.72402637;
+    constexpr double max_x = 1.41e3;
+
+    static const auto spline = make_cubic_spline(J_B_X_DATA, J_B_Y_DATA);
+    
+    static const double spline_at_min_x_val = alglib::spline1dcalc(spline, min_x);
+    static const double spline_at_min_x_der1 = 0.0;  
+    static const double spline_at_min_x_der2 = 0.0;   
+
+    if (x < min_x) {
+        if (deriv_order == 0) return spline_at_min_x_val;
+        else return 0.0;   
+    } 
+    else if (x > max_x) {
+        return 0.0;
+    } 
+    else {
+        double val, der1, der2;
+        // spline1ddiff computes value, first, and second derivatives in one call
+        alglib::spline1ddiff(spline, x, val, der1, der2);
+        switch (deriv_order) {
+            case 0: return val;
+            case 1: return der1;
+            case 2: return der2;
+            default: throw std::invalid_argument("Invalid derivative order");
+        }
+    }
+}
+
+
+double J_F(double x, int deriv_order) {
+    constexpr double min_x = -6.82200203;
+    constexpr double max_x = 1.35e3;
+
+    static const auto spline = make_cubic_spline(J_F_X_DATA, J_F_Y_DATA);
+    static const double spline_at_min_x_val = alglib::spline1dcalc(spline, min_x);
+
+    if (x < min_x) {
+        if (deriv_order == 0) return spline_at_min_x_val;
+        else return 0.0;
+    } 
+    else if (x > max_x) {
+        return 0.0;
+    } 
+    else {
+        double val, der1, der2;
+        alglib::spline1ddiff(spline, x, val, der1, der2);
+        switch (deriv_order) {
+            case 0: return val;
+            case 1: return der1;
+            case 2: return der2;
+            default: throw std::invalid_argument("Invalid derivative order");
+        }
+    }
+}
+
+
 } // namespace EffectivePotential
