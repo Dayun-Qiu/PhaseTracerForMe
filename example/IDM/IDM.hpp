@@ -9,8 +9,6 @@
 #include <iostream>
 #include <string>
 
-#include <Eigen/Dense>
-
 #include "potential.hpp"
 #include "SelfEnergy.hpp"
 using namespace std;
