@@ -12,6 +12,7 @@
 #include <functional>
 #include <array>
 #include <Eigen/Dense>
+#include <string>
 
 #define RG_scale 91.1876
 
@@ -215,6 +216,17 @@ namespace EffectivePotential {
     }
 
 
+    struct gapEqResult {
+        std::vector<double> x; // vector of mass squared for all particles, in the order of mh2, mG2, mA2, mH2, mHpm2, mW2L, mZ2L, mga2L, mW2T, mZ2T, mga2T,  swL, swT
+        std::string message; // message for convergence status
+        double loss; // the loss function value at the solution
+        bool success;
+        
+        gapEqResult() : x(13, 0.0) {}
+    };
+
+
+
     class SelfEnergy {
         private:
             // constants
@@ -240,13 +252,6 @@ namespace EffectivePotential {
             double lam3 = 0;
             double lam4 = 0;
             double lam5 = 0;
-
-            double delta_lam1 = 0;
-            double delta_mu1sq = 0;
-            double delta_mu2sq = 0;
-            double delta_lamm = 0;
-            double delta_lamp = 0;
-            double delta_lam3 = 0;
 
 
 
@@ -2458,7 +2463,7 @@ namespace EffectivePotential {
              */
             std::pair<double, std::vector<double>> calc_loss(const std::pair<std::vector<double>, std::vector<double>>& bosons, const std::vector<double>& x, double phi, double T) {
                 // Tree-level boson mass spectrum and conterterms
-                const auto& [mixing_angles, mass_squared_values] = bosons;
+                const auto& [mass_squared_values, mixing_angles] = bosons;
                 const double mh2_init = mass_squared_values[0];
                 const double mG2_init = mass_squared_values[1];
                 const double mA2_init = mass_squared_values[2];
@@ -2536,6 +2541,56 @@ namespace EffectivePotential {
                 
                 return make_pair(deltaMB2.sum(), x_new);
             }
+
+
+            gapEqResult solve_gap_equations(double phi, double T, double tol = 1e-4, const std::pair<std::vector<double>, std::vector<double>>& bosons, const std::pair<std::vector<double>, std::vector<double>>& bosons_init, int max_iter = 300) {
+
+                gapEqResult result;
+                double loss = 1e10; // Initialize with a large loss value
+                std::vector<double> prev_prev(13); // previous previous mass spectrum
+                std::vector<double> prev(13); // previous mass spectrum
+                for (int i = 0; i < 11; ++i) {
+                    prev_prev[i] = bosons_init.first[i];
+                    prev[i] = bosons_init.first[i];
+                }
+                prev_prev[11] = bosons_init.second[0];
+                prev_prev[12] = bosons_init.second[1];
+                prev[11] = bosons_init.second[0];
+                prev[12] = bosons_init.second[1];
+
+                for (int iter = 0; iter < max_iter; ++iter) {
+                    auto [loss_new, x_new] = calc_loss(bosons, prev, phi, T);
+
+                    if (loss_new < tol) {
+                        result.x = x_new;
+                        result.loss = loss_new;
+                        result.success = true;
+                        result.message = "Converged to specified precision after " + std::to_string(iter + 1) + " iterations";
+                        return result;
+                    }
+                    else {
+                        // checking the loss value if decreased 
+                        if (loss_new > loss) { // improve the iteration
+                            if (iter < 50) loss = loss_new;
+
+                            for (int i = 0; i < 13; ++i) {
+                                prev[i] = prev_prev[i] + 0.5 * (prev[i] - prev_prev[i]); // simple extrapolation
+                            } 
+                        } else {
+                            prev_prev = prev;
+                            prev = x_new;
+                            loss = loss_new;
+                        }
+                    }
+                }
+                result.x = prev_prev; // Return the last mass spectrum before the final iteration
+                result.loss = loss;
+                result.success = false;
+                result.message = "Failed to converge after maximum iterations";
+                return result;
+            }
+
+
 
 
     };
