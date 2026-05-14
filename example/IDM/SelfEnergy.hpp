@@ -138,14 +138,14 @@ namespace EffectivePotential {
             return I0b(m2, T);
         }
         else {
-            double coeff = pow(-1, j) / factorial(j - 1);
+            double coeff = std::pow(-1, j) / factorial(j - 1);
             double zero_temp_part = zeroT_term_deriv(m2, j);
             if (T <= std::numeric_limits<double>::min()) {
                 return coeff *zero_temp_part;
             }
             else {
                 double x_T = m2 / square(T);
-                double finite_temp_part = - (pow(T, 4 - 2*j) / square(M_PI)) * J_B(x_T, j);
+                double finite_temp_part = - (std::pow(T, 4 - 2*j) / square(M_PI)) * J_B(x_T, j);
                 return coeff *(zero_temp_part + finite_temp_part);
             }
         }
@@ -160,9 +160,9 @@ namespace EffectivePotential {
                 return 0.;
             }
             else {
-                double coeff = pow(-1, j) / factorial(j - 1);
+                double coeff = std::pow(-1, j) / factorial(j - 1);
                 double x_T = m2 / square(T);
-                double result = - (2-j) * (pow(T, 4-2*j)/ square(M_PI)) * J_B(x_T, j) + (m2 * pow(T, 2-2*j)/ square(M_PI)) * J_B(x_T, j+1);
+                double result = - (2-j) * (std::pow(T, 4-2*j)/ square(M_PI)) * J_B(x_T, j) + (m2 * std::pow(T, 2-2*j)/ square(M_PI)) * J_B(x_T, j+1);
                 return coeff * result;
             }
         }
@@ -173,14 +173,14 @@ namespace EffectivePotential {
             return I0f(m2, T);
         }
         else {
-            double coeff = pow(-1, j) / factorial(j - 1);
+            double coeff = std::pow(-1, j) / factorial(j - 1);
             double zero_temp_part = zeroT_term_deriv(m2, j);
             if (T <= std::numeric_limits<double>::min()) {
                 return coeff *zero_temp_part;
             }
             else {
                 double x_T = m2 / square(T);
-                double finite_temp_part = (pow(T, 4 - 2*j) / square(M_PI)) * J_F(x_T, j);
+                double finite_temp_part = (std::pow(T, 4 - 2*j) / square(M_PI)) * J_F(x_T, j);
                 return coeff *(zero_temp_part + finite_temp_part);
             }
         }
@@ -195,9 +195,9 @@ namespace EffectivePotential {
                 return 0.;
             }
             else {
-                double coeff = pow(-1, j) / factorial(j - 1);
+                double coeff = std::pow(-1, j) / factorial(j - 1);
                 double x_T = m2 / square(T);
-                double result = (2-j) * (pow(T, 4-2*j)/ square(M_PI)) * J_F(x_T, j) - (m2 * pow(T, 2-2*j)/ square(M_PI)) * J_F(x_T, j+1);
+                double result = (2-j) * (std::pow(T, 4-2*j)/ square(M_PI)) * J_F(x_T, j) - (m2 * std::pow(T, 2-2*j)/ square(M_PI)) * J_F(x_T, j+1);
                 return coeff * result;
             }
         }
@@ -335,14 +335,14 @@ namespace EffectivePotential {
                 swT = std::clamp(swT, 0.0, 1.0);
                 double cwL = std::sqrt(1.0 - square(swL));
                 double cwT = std::sqrt(1.0 - square(swT));
-                double L_term = -0.125 * pow(g * cwL + gp * swL, 4) * square(phi) * Ijb(mZ2L, T, 2);
-                double T_term = -0.125 * pow(g * cwT + gp * swT, 4) * square(phi) * (2.0 * Ijb(mZ2T, T, 2) + UV_term(mZ2T, -2.0, 2));
+                double L_term = -0.125 * pow_4(g * cwL + gp * swL) * square(phi) * Ijb(mZ2L, T, 2);
+                double T_term = -0.125 * pow_4(g * cwT + gp * swT) * square(phi) * (2.0 * Ijb(mZ2T, T, 2) + UV_term(mZ2T, -2.0, 2));
                 return L_term + T_term;
             }
 
             double DPihZZ_Dm2(double mZ2, double sw) {
                 double cw = std::sqrt(1.0 - square(sw));
-                return -0.125 * pow(g * cw + gp * sw, 4) * square(v0) * (3.0 * zeroT_term_deriv(mZ2, 3) + UV_term(mZ2, -2.0, 3));
+                return -0.125 * pow_4(g * cw + gp * sw) * square(v0) * (3.0 * zeroT_term_deriv(mZ2, 3) + UV_term(mZ2, -2.0, 3));
             }
 
             // Photon (gamma) contribution: Pihgaga
@@ -351,8 +351,8 @@ namespace EffectivePotential {
                 swT = std::clamp(swT, 0.0, 1.0);
                 double cwL = std::sqrt(1.0 - square(swL));
                 double cwT = std::sqrt(1.0 - square(swT));
-                double L_term = -0.125 * pow(g * swL - gp * cwL, 4) * square(phi) * Ijb(mga2L, T, 2);
-                double T_term = -0.125 * pow(g * swT - gp * cwT, 4) * square(phi) * (2.0 * Ijb(mga2T, T, 2) + UV_term(mga2T, -2.0, 2));
+                double L_term = -0.125 * pow_4(g * swL - gp * cwL) * square(phi) * Ijb(mga2L, T, 2);
+                double T_term = -0.125 * pow_4(g * swT - gp * cwT) * square(phi) * (2.0 * Ijb(mga2T, T, 2) + UV_term(mga2T, -2.0, 2));
                 return L_term + T_term;
             }
 
@@ -377,11 +377,11 @@ namespace EffectivePotential {
 
             // W boson contribution: PihWW
             double PihWW(double mW2L, double mW2T, double T, double phi) {
-                return -0.25 * pow(g, 4) * square(phi) * (Ijb(mW2L, T, 2) + 2.0 * Ijb(mW2T, T, 2) + UV_term(mW2T, -2.0, 2));
+                return -0.25 * pow_4(g) * square(phi) * (Ijb(mW2L, T, 2) + 2.0 * Ijb(mW2T, T, 2) + UV_term(mW2T, -2.0, 2));
             }
             
             double DPihWW_Dm2(double mW2) {
-                return -0.25 * pow(g, 4) * square(v0) * (3.0 * zeroT_term_deriv(mW2, 3) + UV_term(mW2, -2.0, 3));
+                return -0.25 * pow_4(g) * square(v0) * (3.0 * zeroT_term_deriv(mW2, 3) + UV_term(mW2, -2.0, 3));
             }
 
             // ======================== Higgs four-points vertex self-energy =========================
@@ -488,7 +488,7 @@ namespace EffectivePotential {
 
                 // Perform integration over [0, 1]
                 // 1e-4 is the relative tolerance
-                double result = gauss_kronrod<double, 15>::integrate(integrand, 0.0, 1.0, 20, 1e-4);
+                double result = gauss_kronrod<double, 15>::integrate(integrand, 0.0, 1.0, 50, 1e-4);
                 return result;
             }
 
@@ -521,7 +521,7 @@ namespace EffectivePotential {
                     return -x * (1.0 - x) * Pisum;
                 };
 
-                double result = gauss_kronrod<double, 15>::integrate(integrand, 0.0, 1.0, 20, 1e-4);
+                double result = gauss_kronrod<double, 15>::integrate(integrand, 0.0, 1.0, 50, 1e-4);
                 return result;
             }
 
@@ -1258,7 +1258,7 @@ namespace EffectivePotential {
 
             // Polarization function PiWThW from h and W contributions
             double PiWThW(double mh2, double mW2L, double mW2T, double T, double phi) {
-                return -pow(g, 4) * square(phi) / 12.0 * PiTSV(mh2, mW2L, mW2T, T, 1.0, 1.0);
+                return -pow_4(g) * square(phi) / 12.0 * PiTSV(mh2, mW2L, mW2T, T, 1.0, 1.0);
             }
 
             // Polarization function PiWTGga from G and photon contributions
@@ -1522,7 +1522,7 @@ namespace EffectivePotential {
 
             // Polarization function PiWLhW from h and W contributions
             double PiWLhW(double mh2, double mW2L, double T, double phi) {
-                return -0.25 * pow(g, 4) * square(phi) * PiLSV(mh2, mW2L, T);
+                return -0.25 * pow_4(g) * square(phi) * PiLSV(mh2, mW2L, T);
             }
 
             // Polarization function PiWLGga from G and photon contributions
