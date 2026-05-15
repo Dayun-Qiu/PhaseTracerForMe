@@ -11,10 +11,22 @@
 #include <stdexcept>
 #include <sstream>
 #include <cstdint>
+#include <filesystem>
+#include <vector>
+#include <string>
+#include <cmath>
+#include <algorithm>
+#include <numeric>
+#include <future>
+#include <atomic>
+#include <mutex>
+#include <chrono>
+#include <functional>
+#include <map>
+#include <memory>
+
 #include "potential.hpp"
 #include "SelfEnergy.hpp"
-#include <filesystem>
-
 
 namespace EffectivePotential {
 
@@ -59,6 +71,112 @@ namespace EffectivePotential {
         double lam5 ;
     };
 
+    // Forward declaration or include for Spline library if available
+    // For this example, we define a simple interface. 
+    // In production, replace this with GSL gsl_spline2d or Eigen Splines.
+    class BivariateSpline {
+    public:
+        virtual ~BivariateSpline() = default;
+        virtual double evaluate(double phi, double T) const = 0;
+    };
+
+    // Placeholder implementation. You should replace this with a real library call.
+    class LinearBivariateSpline : public BivariateSpline {
+    private:
+        std::vector<double> x_vals; // phi
+        std::vector<double> y_vals; // T
+        std::vector<double> z_vals; // flat data [phi_idx * n_T + T_idx]
+        int n_x, n_y;
+    public:
+        LinearBivariateSpline(const std::vector<double>& x, const std::vector<double>& y, const std::vector<double>& z)
+            : x_vals(x), y_vals(y), z_vals(z), n_x(x.size()), n_y(y.size()) {}
+
+        double evaluate(double phi, double T) const override {
+            // Simple bilinear interpolation or nearest neighbor for placeholder
+            // Real implementation requires cubic spline logic
+            if (phi < x_vals.front() || phi > x_vals.back() || T < y_vals.front() || T > y_vals.back()) {
+                return std::nan("");
+            }
+            
+            // Find indices
+            auto it_x = std::lower_bound(x_vals.begin(), x_vals.end(), phi);
+            auto it_y = std::lower_bound(y_vals.begin(), y_vals.end(), T);
+            
+            int idx_x = std::distance(x_vals.begin(), it_x);
+            int idx_y = std::distance(y_vals.begin(), it_y);
+            
+            if (idx_x >= n_x) idx_x = n_x - 1;
+            if (idx_y >= n_y) idx_y = n_y - 1;
+            if (idx_x > 0 && phi < x_vals[idx_x]) idx_x--;
+            if (idx_y > 0 && T < y_vals[idx_y]) idx_y--;
+
+            // Return value (placeholder: just returning grid value)
+            return z_vals[idx_x * n_y + idx_y];
+        }
+    };
+
+    // Structure to hold splines for all thermal masses and mixing angles
+    struct MassSplines {
+        std::unique_ptr<BivariateSpline> Mh2;
+        std::unique_ptr<BivariateSpline> MG2;
+        std::unique_ptr<BivariateSpline> MA2;
+        std::unique_ptr<BivariateSpline> MH2;
+        std::unique_ptr<BivariateSpline> MHpm2;
+        std::unique_ptr<BivariateSpline> MW2L;
+        std::unique_ptr<BivariateSpline> MZ2L;
+        std::unique_ptr<BivariateSpline> Mga2L;
+        std::unique_ptr<BivariateSpline> MW2T;
+        std::unique_ptr<BivariateSpline> MZ2T;
+        std::unique_ptr<BivariateSpline> Mga2T;
+        std::unique_ptr<BivariateSpline> swL;
+        std::unique_ptr<BivariateSpline> swT;
+
+        MassSplines() = default;
+        
+        // Helper to access by index for compatibility with old loop-based logic if needed
+        // Or just use direct member access which is safer.
+        // We will provide a getter that maps index to member for the init function.
+        
+        // Non-const version: Allows modification of the unique_ptr (e.g., during initialization)
+        std::unique_ptr<BivariateSpline>& get_by_index(int index) {
+            switch(index) {
+                case 0: return Mh2;
+                case 1: return MG2;
+                case 2: return MA2;
+                case 3: return MH2;
+                case 4: return MHpm2;
+                case 5: return MW2L;
+                case 6: return MZ2L;
+                case 7: return Mga2L;
+                case 8: return MW2T;
+                case 9: return MZ2T;
+                case 10: return Mga2T;
+                case 11: return swL;
+                case 12: return swT;
+                default: throw std::out_of_range("Invalid mass spline index");
+            }
+        }
+        
+        // Const version: Allows read-only access, required for use within const member functions
+        const std::unique_ptr<BivariateSpline>& get_by_index(int index) const {
+             switch(index) {
+                case 0: return Mh2;
+                case 1: return MG2;
+                case 2: return MA2;
+                case 3: return MH2;
+                case 4: return MHpm2;
+                case 5: return MW2L;
+                case 6: return MZ2L;
+                case 7: return Mga2L;
+                case 8: return MW2T;
+                case 9: return MZ2T;
+                case 10: return Mga2T;
+                case 11: return swL;
+                case 12: return swT;
+                default: throw std::out_of_range("Invalid mass spline index");
+            }
+        }
+    };
 
     class IDM : public Potential {
     public:
@@ -524,10 +642,243 @@ namespace EffectivePotential {
             delta_lamm = - 2.0 * (selfenergy.PiA3(.0, MB2_vec, v0) + selfenergy.PiA4(.0, MB2_vec) + delta_mu2sq) / square(v0);
         }
 
+        /**
+         * Initialize mass splines by solving gap equations on a grid asynchronously.
+         * Saves results to disk and loads them into spline interpolators.
+         */
+        void init_mass_splines () {
+            double phimin = 0.0, phimax = 400.0;
+            double Tmin = 0.0, Tmax = 300.0;
+            int n_phi = 400, n_T = 300;
+            std::string spline_data_path = "/home/dayun/data"; // Adjust path as needed
+            std::filesystem::create_directories(spline_data_path);
+            
+            std::string M2_dat_path = spline_data_path + "/M2_" + paramNumber + ".txt";
+            std::string bad_points_path = spline_data_path + "/bad_points_" + paramNumber + ".txt";
 
+            const int n_mass = 13; // mh2, mG2, mA2, mH2, mHpm2, mW2L, mZ2L, mga2L, mW2T, mZ2T, mga2T, swL, swT
+            const size_t total_points = static_cast<size_t>(n_phi) * n_T;
+            
+            // Flat storage: index = i_phi * n_T + i_T
+            std::vector<double> yM_flat(total_points * n_mass, 0.0);
+            std::vector<bool> valid_points(total_points, false);
+            std::vector<std::pair<double, double>> bad_points_list;
+            
+            std::mutex bad_points_mutex;
+            std::atomic<int> completed_points(0);
+            auto start_time = std::chrono::high_resolution_clock::now();
 
+            // Generate grid coordinates
+            std::vector<double> xphi(n_phi);
+            std::vector<double> xT(n_T);
+            for (int i = 0; i < n_phi; ++i) xphi[i] = phimin + i * (phimax - phimin) / (n_phi - 1);
+            for (int j = 0; j < n_T; ++j) xT[j] = Tmin + j * (Tmax - Tmin) / (n_T - 1);
+
+            // Check if data exists
+            if (std::filesystem::exists(M2_dat_path)) {
+                load_mass_data(M2_dat_path, xphi, xT, yM_flat, n_phi, n_T, n_mass);
+                std::cout << "Loaded mass data from " << M2_dat_path << std::endl;
+            } else {
+                std::cout << "Generating mass data on grid (" << n_phi << "x" << n_T << ")..." << std::endl;
+
+                // Define the worker lambda to handle the computation for a single grid point
+                auto worker = [this, n_mass, &yM_flat, &valid_points, &bad_points_list, &bad_points_mutex, &completed_points, total_points, start_time](int i, int j, double phi, double T, size_t idx) {
+                    try {
+                        // Solve gap equations
+                        auto bosons_init = boson_massSq(Eigen::VectorXd::Constant(1, phi), T, ThermalMassScheme::Tree); // Initial guess
+                        auto bosons_bare = boson_massSq(Eigen::VectorXd::Constant(1, phi), T, ThermalMassScheme::CTterm);
+                        
+                        // Create a local SelfEnergy instance to call the solver
+                        SelfEnergy selfenergy(this->lam2, this->lamL, this->mA, this->mH, this->mHpm);
+                        gapEqResult result = selfenergy.solve_gap_equations(phi, T, 1e-4, bosons_bare, bosons_init, 300);
+
+                        size_t base_idx = idx * n_mass;
+                        if (result.success) {
+                            for (int k = 0; k < n_mass; ++k) {
+                                yM_flat[base_idx + k] = result.x[k];
+                            }
+                            valid_points[idx] = true;
+                        } else {
+                            // Mark as NaN
+                            for (int k = 0; k < n_mass; ++k) {
+                                yM_flat[base_idx + k] = std::nan("");
+                            }
+                            std::lock_guard<std::mutex> lock(bad_points_mutex);
+                            bad_points_list.emplace_back(phi, T);
+                            std::cerr << "\nWarning: phi=" << phi << ", T=" << T << ": " << result.message << std::endl;
+                        }
+                    } catch (const std::exception& e) {
+                        std::lock_guard<std::mutex> lock(bad_points_mutex);
+                        bad_points_list.emplace_back(phi, T);
+                        std::cerr << "\nException at phi=" << phi << ", T=" << T << ": " << e.what() << std::endl;
+                        size_t base_idx = idx * n_mass;
+                        for (int k = 0; k < n_mass; ++k) yM_flat[base_idx + k] = std::nan("");
+                    }
+
+                    int completed = ++completed_points;
+                    if (completed % 500 == 0 || completed == total_points) {
+                        auto now = std::chrono::high_resolution_clock::now();
+                        std::chrono::duration<double> elapsed = now - start_time;
+                        double progress = (static_cast<double>(completed) / total_points) * 100.0;
+                        double avg_time = elapsed.count() / completed;
+                        double remaining_seconds = avg_time * (total_points - completed);
+                        
+                        // Helper lambda to format seconds into HH:MM:SS
+                        auto format_time = [](double seconds) -> std::string {
+                            int total_secs = static_cast<int>(seconds);
+                            int h = total_secs / 3600;
+                            int m = (total_secs % 3600) / 60;
+                            int s = total_secs % 60;
+                            std::ostringstream oss;
+                            oss << std::setfill('0') << std::setw(2) << h << ":"
+                                << std::setfill('0') << std::setw(2) << m << ":"
+                                << std::setfill('0') << std::setw(2) << s;
+                            return oss.str();
+                        };
+
+                        std::lock_guard<std::mutex> lock(bad_points_mutex); // Protect cout
+                        std::cout << "\rProgress: " << completed << "/" << total_points 
+                                  << " (" << std::fixed << std::setprecision(1) << progress << "%) | "
+                                  << "Elapsed: " << format_time(elapsed.count()) << " | "
+                                  << "Est. Remaining: " << format_time(remaining_seconds) << "   " << std::flush;
+                    }
+                };
+
+                // Launch async tasks for each grid point       
+                std::vector<std::future<void>> futures;
+                futures.reserve(total_points);
+
+                for (int i = 0; i < n_phi; ++i) {
+                    for (int j = 0; j < n_T; ++j) {
+                        double phi = xphi[i];
+                        double T = xT[j];
+                        size_t idx = static_cast<size_t>(i) * n_T + j;
+
+                        futures.push_back(std::async(std::launch::async, [worker, i, j, phi, T, idx]() {
+                            worker(i, j, phi, T, idx);
+                        }));
+                    }
+                }
+
+                // Wait for all tasks to complete
+                for (auto& f : futures) {
+                    f.get();
+                }
+                std::cout << "\nGeneration complete." << std::endl;
+
+                // Save data
+                save_mass_data(M2_dat_path, xphi, xT, yM_flat, n_phi, n_T, n_mass);
+            }
+
+            // Save bad points if any were found during generation or if we want to ensure the file reflects current state
+            // Note: If loading from disk, bad_points_list is empty. We rely on the existence of the file on disk.
+            if (!bad_points_list.empty()) {
+                std::ofstream bad_file(bad_points_path);
+                bad_file << "phi T" << std::endl;
+                for (const auto& bp : bad_points_list) {
+                    bad_file << std::fixed << std::setprecision(6) << bp.first << " " << bp.second << std::endl;
+                }
+                bad_file.close();
+                std::cout << "Saved " << bad_points_list.size() << " bad points to " << bad_points_path << std::endl;
+            }
+
+            // Create splines
+            create_splines(xphi, xT, yM_flat, n_phi, n_T, n_mass, bad_points_path);
+        }
+
+        // Helper to get interpolated mass squared
+        double get_interpolated_mass_sq(int mass_index, double phi, double T) const {
+            if (mass_index < 0 || mass_index >= 13) {
+                throw std::out_of_range("Invalid mass index");
+            }
+            const auto& spline = mass_splines_.get_by_index(mass_index);
+            if (!spline) {
+                throw std::runtime_error("Spline not initialized");
+            }
+            return spline->evaluate(phi, T);
+        }
 
     private:
+        MassSplines mass_splines_;
+
+        void load_mass_data(const std::string& path, 
+                            std::vector<double>& xphi, std::vector<double>& xT,
+                            std::vector<double>& yM_flat,
+                            int n_phi, int n_T, int n_mass) {
+            std::ifstream file(path);
+            if (!file.is_open()) {
+                throw std::runtime_error("Could not open file: " + path);
+            }
+            
+            yM_flat.resize(static_cast<size_t>(n_phi) * n_T * n_mass);
+            
+            double phi, T;
+            int count = 0;
+            
+            while (file >> phi) {
+                file >> T;
+                if (count >= n_phi * n_T) break;
+                
+                for (int k = 0; k < n_mass; ++k) {     
+                    file >> yM_flat[count * n_mass + k];
+                }
+                count++;
+            }
+            
+            if (count != n_phi * n_T) {
+                std::cerr << "Warning: Loaded " << count << " points, expected " << n_phi * n_T << std::endl;
+            }
+        }
+
+        void save_mass_data(const std::string& path,
+                            const std::vector<double>& xphi, const std::vector<double>& xT,
+                            const std::vector<double>& yM_flat,
+                            int n_phi, int n_T, int n_mass) {
+            std::ofstream file(path);
+            if (!file.is_open()) {
+                throw std::runtime_error("Could not open file for writing: " + path);
+            }
+
+            for (int i = 0; i < n_phi; ++i) {
+                for (int j = 0; j < n_T; ++j) {
+                    size_t idx = static_cast<size_t>(i) * n_T + j;
+                    file << std::scientific << std::setprecision(6)
+                         << xphi[i] << " " << xT[j];
+                    
+                    for (int k = 0; k < n_mass; ++k) {
+                        file << " " << yM_flat[idx * n_mass + k];
+                    }
+                    file << "\n";
+                }
+            }
+            file.close();
+        }
+
+        void create_splines(const std::vector<double>& xphi, const std::vector<double>& xT,
+                            const std::vector<double>& yM_flat,
+                            int n_phi, int n_T, int n_mass, const std::string& bad_points_path) {
+            
+            // Check for bad points file existence before creating splines
+            if (std::filesystem::exists(bad_points_path)) {
+                throw std::runtime_error("Bad points file detected: " + bad_points_path + ". Please resolve the bad points before proceeding with interpolation.");
+            }
+
+            for (int k = 0; k < n_mass; ++k) {
+                // Extract column k from flat array
+                std::vector<double> z_data(static_cast<size_t>(n_phi) * n_T);
+                for (int i = 0; i < n_phi; ++i) {
+                    for (int j = 0; j < n_T; ++j) {
+                        size_t idx = static_cast<size_t>(i) * n_T + j;
+                        z_data[idx] = yM_flat[idx * n_mass + k];
+                    }
+                }
+                
+                // Replace LinearBivariateSpline with your preferred high-quality spline implementation
+                // e.g., GSL gsl_spline2d_alloc(gsl_spline2d_bicubic, ...)
+                mass_splines_.get_by_index(k) = std::make_unique<LinearBivariateSpline>(xphi, xT, z_data);
+            }
+        }
+
         // constants
         const double v0 = 246.22; // GeV
         const double mh = 125.10; // GeV
@@ -563,95 +914,26 @@ namespace EffectivePotential {
         ResummationScheme ResumScheme = ResummationScheme::None;
 
 
-        std::string formatTime(double seconds) {
-            if (seconds < 0) seconds = 0;
-            int64_t total_seconds = static_cast<int64_t>(seconds);  
-            int days = static_cast<int>(total_seconds / 86400);
-            int hours = static_cast<int>((total_seconds % 86400) / 3600);
-            int mins = static_cast<int>((total_seconds % 3600) / 60);
-            int secs = static_cast<int>(total_seconds % 60);
-
-            std::ostringstream oss;
-            if (days > 0) {
-                oss << days << "days" << hours << "hours" << mins << "minutes";
-            } else if (hours > 0) {
-                oss << hours << "hours" << mins << "minutes";
-            } else {
-                oss << mins << "minutes" << secs << "seconds";
-            }
-            return oss.str();
-        }
-
-        inline size_t dataIndex(int i, int j, int k, int n_T) {
-            return ((i * n_T) + j) * 13 + k;
-        }
-
-        bool loadData(const std::filesystem::path& filename, int n_phi, int n_T, std::vector<double>& data) {
-            if (!std::filesystem::exists(filename)) return false;
-            std::ifstream fin(filename);
-            if (!fin) return false;
-
-            size_t expected_size = static_cast<size_t>(n_phi) * n_T * 13;
-            data.resize(expected_size);
-
-            std::string line;
-            int i = 0, j = 0;
-            while (std::getline(fin, line)) {
-                if (line.empty() || line[0] == '#') continue;
-                std::istringstream iss(line);
-                double phi, T;
-                if (!(iss >> phi >> T)) {
-                    continue;
-                }
-                for (int k = 0; k < 13; ++k) {
-                    if (!(iss >> data[dataIndex(i, j, k, n_T)])) {
-                        data[dataIndex(i, j, k, n_T)] = std::nan("");
-                    }
-                }
-                ++j;
-                if (j == n_T) {
-                    j = 0;
-                    ++i;
-                }
-                if (i >= n_phi) break; 
-            }
-            return true;
-        }
-
-        void saveData(const std::filesystem::path& filename,
-                    const std::vector<double>& xphi,
-                    const std::vector<double>& xT,
-                    const std::vector<double>& data) {
-            std::ofstream fout(filename);
-            if (!fout) throw std::runtime_error("can not create file: " + filename.string());
-
-            int n_phi = static_cast<int>(xphi.size());
-            int n_T = static_cast<int>(xT.size());
-
-            fout << std::scientific << std::setprecision(6);
-            for (int i = 0; i < n_phi; ++i) {
-                for (int j = 0; j < n_T; ++j) {
-                    fout << xphi[i] << " " << xT[j];
-                    size_t base = (i * n_T + j) * 13;
-                    for (int k = 0; k < 13; ++k) {
-                        fout << " " << data[base + k];
-                    }
-                    fout << "\n";
-                }
-            }
-        }
 
 
 
 
 
 
-    };
+
+
+
+      };     
 
 
 
 
 
+    
+
+
+
+   
 
 
 

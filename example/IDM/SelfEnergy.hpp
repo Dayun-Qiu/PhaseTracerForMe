@@ -2543,7 +2543,7 @@ namespace EffectivePotential {
             }
 
 
-            gapEqResult solve_gap_equations(double phi, double T, double tol = 1e-4, const std::pair<std::vector<double>, std::vector<double>>& bosons, const std::pair<std::vector<double>, std::vector<double>>& bosons_init, int max_iter = 300) {
+            gapEqResult solve_gap_equations(double phi, double T, double tol, const std::pair<std::vector<double>, std::vector<double>>& bosons_bare, const std::pair<std::vector<double>, std::vector<double>>& bosons_init, int max_iter = 300) {
 
                 gapEqResult result;
                 double loss = 1e10; // Initialize with a large loss value
@@ -2559,7 +2559,7 @@ namespace EffectivePotential {
                 prev[12] = bosons_init.second[1];
 
                 for (int iter = 0; iter < max_iter; ++iter) {
-                    auto [loss_new, x_new] = calc_loss(bosons, prev, phi, T);
+                    auto [loss_new, x_new] = calc_loss(bosons_bare, prev, phi, T);
 
                     if (loss_new < tol) {
                         result.x = x_new;

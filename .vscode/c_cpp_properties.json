@@ -6,7 +6,8 @@
                 "${workspaceFolder}/**",
                 "/home/dayun/PhaseTracerForMe/EffectivePotential/include/effectivepotential/",
                 "/home/dayun/PhaseTracerForMe/include/",
-                "/usr/include/**"
+                "/usr/include/**",
+                "/usr/include/eigen3"
             ],
             "defines": [],
             "cppStandard": "c++17",
