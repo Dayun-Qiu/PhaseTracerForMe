@@ -22,8 +22,11 @@
 #include <mutex>
 #include <chrono>
 #include <functional>
-#include <map>
 #include <memory>
+#include <thread>
+#include <Eigen/Dense>
+#include <gsl/gsl_spline2d.h>
+#include <gsl/gsl_interp2d.h>
 
 #include "potential.hpp"
 #include "SelfEnergy.hpp"
@@ -71,112 +74,23 @@ namespace EffectivePotential {
         double lam5 ;
     };
 
-    // Forward declaration or include for Spline library if available
-    // For this example, we define a simple interface. 
-    // In production, replace this with GSL gsl_spline2d or Eigen Splines.
-    class BivariateSpline {
-    public:
-        virtual ~BivariateSpline() = default;
-        virtual double evaluate(double phi, double T) const = 0;
-    };
-
-    // Placeholder implementation. You should replace this with a real library call.
-    class LinearBivariateSpline : public BivariateSpline {
-    private:
-        std::vector<double> x_vals; // phi
-        std::vector<double> y_vals; // T
-        std::vector<double> z_vals; // flat data [phi_idx * n_T + T_idx]
-        int n_x, n_y;
-    public:
-        LinearBivariateSpline(const std::vector<double>& x, const std::vector<double>& y, const std::vector<double>& z)
-            : x_vals(x), y_vals(y), z_vals(z), n_x(x.size()), n_y(y.size()) {}
-
-        double evaluate(double phi, double T) const override {
-            // Simple bilinear interpolation or nearest neighbor for placeholder
-            // Real implementation requires cubic spline logic
-            if (phi < x_vals.front() || phi > x_vals.back() || T < y_vals.front() || T > y_vals.back()) {
-                return std::nan("");
-            }
-            
-            // Find indices
-            auto it_x = std::lower_bound(x_vals.begin(), x_vals.end(), phi);
-            auto it_y = std::lower_bound(y_vals.begin(), y_vals.end(), T);
-            
-            int idx_x = std::distance(x_vals.begin(), it_x);
-            int idx_y = std::distance(y_vals.begin(), it_y);
-            
-            if (idx_x >= n_x) idx_x = n_x - 1;
-            if (idx_y >= n_y) idx_y = n_y - 1;
-            if (idx_x > 0 && phi < x_vals[idx_x]) idx_x--;
-            if (idx_y > 0 && T < y_vals[idx_y]) idx_y--;
-
-            // Return value (placeholder: just returning grid value)
-            return z_vals[idx_x * n_y + idx_y];
-        }
-    };
-
-    // Structure to hold splines for all thermal masses and mixing angles
     struct MassSplines {
-        std::unique_ptr<BivariateSpline> Mh2;
-        std::unique_ptr<BivariateSpline> MG2;
-        std::unique_ptr<BivariateSpline> MA2;
-        std::unique_ptr<BivariateSpline> MH2;
-        std::unique_ptr<BivariateSpline> MHpm2;
-        std::unique_ptr<BivariateSpline> MW2L;
-        std::unique_ptr<BivariateSpline> MZ2L;
-        std::unique_ptr<BivariateSpline> Mga2L;
-        std::unique_ptr<BivariateSpline> MW2T;
-        std::unique_ptr<BivariateSpline> MZ2T;
-        std::unique_ptr<BivariateSpline> Mga2T;
-        std::unique_ptr<BivariateSpline> swL;
-        std::unique_ptr<BivariateSpline> swT;
-
-        MassSplines() = default;
-        
-        // Helper to access by index for compatibility with old loop-based logic if needed
-        // Or just use direct member access which is safer.
-        // We will provide a getter that maps index to member for the init function.
-        
-        // Non-const version: Allows modification of the unique_ptr (e.g., during initialization)
-        std::unique_ptr<BivariateSpline>& get_by_index(int index) {
-            switch(index) {
-                case 0: return Mh2;
-                case 1: return MG2;
-                case 2: return MA2;
-                case 3: return MH2;
-                case 4: return MHpm2;
-                case 5: return MW2L;
-                case 6: return MZ2L;
-                case 7: return Mga2L;
-                case 8: return MW2T;
-                case 9: return MZ2T;
-                case 10: return Mga2T;
-                case 11: return swL;
-                case 12: return swT;
-                default: throw std::out_of_range("Invalid mass spline index");
-            }
-        }
-        
-        // Const version: Allows read-only access, required for use within const member functions
-        const std::unique_ptr<BivariateSpline>& get_by_index(int index) const {
-             switch(index) {
-                case 0: return Mh2;
-                case 1: return MG2;
-                case 2: return MA2;
-                case 3: return MH2;
-                case 4: return MHpm2;
-                case 5: return MW2L;
-                case 6: return MZ2L;
-                case 7: return Mga2L;
-                case 8: return MW2T;
-                case 9: return MZ2T;
-                case 10: return Mga2T;
-                case 11: return swL;
-                case 12: return swT;
-                default: throw std::out_of_range("Invalid mass spline index");
-            }
-        }
+        alglib::spline2dinterpolant Mh2;
+        alglib::spline2dinterpolant MG2;
+        alglib::spline2dinterpolant MA2;
+        alglib::spline2dinterpolant MH2;
+        alglib::spline2dinterpolant MHpm2;
+        alglib::spline2dinterpolant MW2L;
+        alglib::spline2dinterpolant MZ2L;
+        alglib::spline2dinterpolant Mga2L;
+        alglib::spline2dinterpolant MW2T;
+        alglib::spline2dinterpolant MZ2T;
+        alglib::spline2dinterpolant Mga2T;
+        alglib::spline2dinterpolant swL;
+        alglib::spline2dinterpolant swT;
     };
+  
+ 
 
     class IDM : public Potential {
     public:
@@ -661,8 +575,8 @@ namespace EffectivePotential {
             
             // Flat storage: index = i_phi * n_T + i_T
             std::vector<double> yM_flat(total_points * n_mass, 0.0);
-            std::vector<bool> valid_points(total_points, false);
-            std::vector<std::pair<double, double>> bad_points_list;
+            //std::vector<bool> valid_points(total_points, false);
+            std::vector<std::tuple<double, double, int, int>> bad_points_list;
             
             std::mutex bad_points_mutex;
             std::atomic<int> completed_points(0);
@@ -681,86 +595,118 @@ namespace EffectivePotential {
             } else {
                 std::cout << "Generating mass data on grid (" << n_phi << "x" << n_T << ")..." << std::endl;
 
-                // Define the worker lambda to handle the computation for a single grid point
-                auto worker = [this, n_mass, &yM_flat, &valid_points, &bad_points_list, &bad_points_mutex, &completed_points, total_points, start_time](int i, int j, double phi, double T, size_t idx) {
-                    try {
-                        // Solve gap equations
-                        auto bosons_init = boson_massSq(Eigen::VectorXd::Constant(1, phi), T, ThermalMassScheme::Tree); // Initial guess
-                        auto bosons_bare = boson_massSq(Eigen::VectorXd::Constant(1, phi), T, ThermalMassScheme::CTterm);
+                // Define the worker lambda to handle a range of grid points
+                // Modified to accept start/end indices and references to grid coordinates
+                auto worker = [this, n_mass, &yM_flat, &bad_points_list, &bad_points_mutex, &completed_points, total_points, start_time](
+                    int start_idx, int end_idx, 
+                    const std::vector<double>& xphi, const std::vector<double>& xT,
+                    int n_T) {
+                    
+                    for (size_t idx = static_cast<size_t>(start_idx); idx < static_cast<size_t>(end_idx); ++idx) {
+                        // Convert flat index back to 2D grid coordinates
+                        int i = static_cast<int>(idx / n_T);
+                        int j = static_cast<int>(idx % n_T);
                         
-                        // Create a local SelfEnergy instance to call the solver
-                        SelfEnergy selfenergy(this->lam2, this->lamL, this->mA, this->mH, this->mHpm);
-                        gapEqResult result = selfenergy.solve_gap_equations(phi, T, 1e-4, bosons_bare, bosons_init, 300);
+                        double phi = xphi[i];
+                        double T = xT[j];
 
-                        size_t base_idx = idx * n_mass;
-                        if (result.success) {
-                            for (int k = 0; k < n_mass; ++k) {
-                                yM_flat[base_idx + k] = result.x[k];
+                        try {
+                            // Solve gap equations
+                            auto bosons_init = boson_massSq(Eigen::VectorXd::Constant(1, phi), T, ThermalMassScheme::Tree); // Initial guess
+                            auto bosons_bare = boson_massSq(Eigen::VectorXd::Constant(1, phi), T, ThermalMassScheme::CTterm);
+                            
+                            // Create a local SelfEnergy instance to call the solver
+                            SelfEnergy selfenergy(this->lam2, this->lamL, this->mA, this->mH, this->mHpm);
+                            gapEqResult result = selfenergy.solve_gap_equations(phi, T, 1e-4, bosons_bare, bosons_init, 300);
+
+                            size_t base_idx = idx * n_mass;
+                            if (result.success) {
+                                for (int k = 0; k < n_mass; ++k) {
+                                    yM_flat[base_idx + k] = result.x[k];
+                                }
+                                //valid_points[idx] = true;
+                            } else {
+                                // Mark as NaN
+                                for (int k = 0; k < n_mass; ++k) {
+                                    yM_flat[base_idx + k] = std::nan("");
+                                }
+                                std::lock_guard<std::mutex> lock(bad_points_mutex);
+                                bad_points_list.emplace_back(phi, T, i, j);
+                                std::cerr << "\nWarning: phi=" << phi << ", T=" << T << ": " << result.message << std::endl;
                             }
-                            valid_points[idx] = true;
-                        } else {
-                            // Mark as NaN
-                            for (int k = 0; k < n_mass; ++k) {
-                                yM_flat[base_idx + k] = std::nan("");
-                            }
+                        } catch (const std::exception& e) {
                             std::lock_guard<std::mutex> lock(bad_points_mutex);
-                            bad_points_list.emplace_back(phi, T);
-                            std::cerr << "\nWarning: phi=" << phi << ", T=" << T << ": " << result.message << std::endl;
+                            bad_points_list.emplace_back(phi, T, i, j);
+                            std::cerr << "\nException at phi=" << phi << ", T=" << T << ": " << e.what() << std::endl;
+                            size_t base_idx = idx * n_mass;
+                            for (int k = 0; k < n_mass; ++k) yM_flat[base_idx + k] = std::nan("");
                         }
-                    } catch (const std::exception& e) {
-                        std::lock_guard<std::mutex> lock(bad_points_mutex);
-                        bad_points_list.emplace_back(phi, T);
-                        std::cerr << "\nException at phi=" << phi << ", T=" << T << ": " << e.what() << std::endl;
-                        size_t base_idx = idx * n_mass;
-                        for (int k = 0; k < n_mass; ++k) yM_flat[base_idx + k] = std::nan("");
-                    }
 
-                    int completed = ++completed_points;
-                    if (completed % 500 == 0 || completed == total_points) {
-                        auto now = std::chrono::high_resolution_clock::now();
-                        std::chrono::duration<double> elapsed = now - start_time;
-                        double progress = (static_cast<double>(completed) / total_points) * 100.0;
-                        double avg_time = elapsed.count() / completed;
-                        double remaining_seconds = avg_time * (total_points - completed);
-                        
-                        // Helper lambda to format seconds into HH:MM:SS
-                        auto format_time = [](double seconds) -> std::string {
-                            int total_secs = static_cast<int>(seconds);
-                            int h = total_secs / 3600;
-                            int m = (total_secs % 3600) / 60;
-                            int s = total_secs % 60;
-                            std::ostringstream oss;
-                            oss << std::setfill('0') << std::setw(2) << h << ":"
-                                << std::setfill('0') << std::setw(2) << m << ":"
-                                << std::setfill('0') << std::setw(2) << s;
-                            return oss.str();
-                        };
+                        int completed = ++completed_points;
+                        if (completed % 500 == 0 || completed == total_points) {
+                            auto now = std::chrono::high_resolution_clock::now();
+                            std::chrono::duration<double> elapsed = now - start_time;
+                            double progress = (static_cast<double>(completed) / total_points) * 100.0;
+                            double avg_time = elapsed.count() / completed;
+                            double remaining_seconds = avg_time * (total_points - completed);
+                            
+                            // Helper lambda to format seconds into HH:MM:SS
+                            auto format_time = [](double seconds) -> std::string {
+                                int total_secs = static_cast<int>(seconds);
+                                int h = total_secs / 3600;
+                                int m = (total_secs % 3600) / 60;
+                                int s = total_secs % 60;
+                                std::ostringstream oss;
+                                oss << std::setfill('0') << std::setw(2) << h << ":"
+                                    << std::setfill('0') << std::setw(2) << m << ":"
+                                    << std::setfill('0') << std::setw(2) << s;
+                                return oss.str();
+                            };
 
-                        std::lock_guard<std::mutex> lock(bad_points_mutex); // Protect cout
-                        std::cout << "\rProgress: " << completed << "/" << total_points 
-                                  << " (" << std::fixed << std::setprecision(1) << progress << "%) | "
-                                  << "Elapsed: " << format_time(elapsed.count()) << " | "
-                                  << "Est. Remaining: " << format_time(remaining_seconds) << "   " << std::flush;
+                            std::lock_guard<std::mutex> lock(bad_points_mutex); // Protect cout
+                            std::cout << "\rProgress: " << completed << "/" << total_points 
+                                      << " (" << std::fixed << std::setprecision(1) << progress << "%) | "
+                                      << "Elapsed: " << format_time(elapsed.count()) << " | "
+                                      << "Est. Remaining: " << format_time(remaining_seconds) << "   " << std::flush;
+                        }
                     }
                 };
 
-                // Launch async tasks for each grid point       
+                // Launch async tasks with static partitioning
                 std::vector<std::future<void>> futures;
-                futures.reserve(total_points);
-
-                for (int i = 0; i < n_phi; ++i) {
-                    for (int j = 0; j < n_T; ++j) {
-                        double phi = xphi[i];
-                        double T = xT[j];
-                        size_t idx = static_cast<size_t>(i) * n_T + j;
-
-                        futures.push_back(std::async(std::launch::async, [worker, i, j, phi, T, idx]() {
-                            worker(i, j, phi, T, idx);
-                        }));
-                    }
+                // Determine the number of concurrent threads
+                unsigned int max_threads = std::thread::hardware_concurrency();
+                if (max_threads == 0) {
+                    max_threads = 8; // Fallback default if hardware concurrency is not available
                 }
+                // Ensure at least 1 thread and not more than total points
+                if (max_threads < 1) max_threads = 1;
+                if (max_threads > total_points) max_threads = static_cast<unsigned int>(total_points);
+                
+                std::cout << "Using " << max_threads << " concurrent threads." << std::endl;
 
-                // Wait for all tasks to complete
+                // Calculate points per thread
+                size_t points_per_thread = total_points / max_threads;
+                size_t remainder = total_points % max_threads;
+
+                futures.reserve(max_threads);
+
+                size_t start_idx = 0;
+                for (unsigned int t = 0; t < max_threads; ++t) {
+                    // Distribute remainder points one by one to the first 'remainder' threads
+                    size_t current_thread_points = points_per_thread + (t < remainder ? 1 : 0);
+                    size_t end_idx = start_idx + current_thread_points;
+
+                    // Launch async task for this chunk
+                    // Capture xphi and xT by reference as they are valid until futures are joined
+                    futures.push_back(std::async(std::launch::async, [&worker, start_idx, end_idx, &xphi, &xT, n_T]() {
+                        worker(start_idx, end_idx, xphi, xT, n_T);
+                    }));
+                    
+                    start_idx = end_idx;
+                }
+                
+                // Wait for all threads to complete
                 for (auto& f : futures) {
                     f.get();
                 }
@@ -768,34 +714,21 @@ namespace EffectivePotential {
 
                 // Save data
                 save_mass_data(M2_dat_path, xphi, xT, yM_flat, n_phi, n_T, n_mass);
-            }
-
-            // Save bad points if any were found during generation or if we want to ensure the file reflects current state
-            // Note: If loading from disk, bad_points_list is empty. We rely on the existence of the file on disk.
-            if (!bad_points_list.empty()) {
-                std::ofstream bad_file(bad_points_path);
-                bad_file << "phi T" << std::endl;
-                for (const auto& bp : bad_points_list) {
-                    bad_file << std::fixed << std::setprecision(6) << bp.first << " " << bp.second << std::endl;
+                // Save bad points if any were found during generation or if we want to ensure the file reflects current state
+                // Note: If loading from disk, bad_points_list is empty. We rely on the existence of the file on disk.
+                if (!bad_points_list.empty()) {
+                    std::ofstream bad_file(bad_points_path);
+                    bad_file << "phi T i j" << std::endl;
+                    for (const auto& bp : bad_points_list) {
+                        bad_file << std::fixed << std::setprecision(6) << std::get<0>(bp) << " " << std::get<1>(bp) << " " << std::get<2>(bp) << " " << std::get<3>(bp) << std::endl;
+                    }
+                    bad_file.close();
+                    std::cout << "Saved " << bad_points_list.size() << " bad points to " << bad_points_path << std::endl;
                 }
-                bad_file.close();
-                std::cout << "Saved " << bad_points_list.size() << " bad points to " << bad_points_path << std::endl;
             }
 
-            // Create splines
-            create_splines(xphi, xT, yM_flat, n_phi, n_T, n_mass, bad_points_path);
-        }
+            create_mass_splines(xphi, xT, yM_flat, n_phi, n_T, n_mass);
 
-        // Helper to get interpolated mass squared
-        double get_interpolated_mass_sq(int mass_index, double phi, double T) const {
-            if (mass_index < 0 || mass_index >= 13) {
-                throw std::out_of_range("Invalid mass index");
-            }
-            const auto& spline = mass_splines_.get_by_index(mass_index);
-            if (!spline) {
-                throw std::runtime_error("Spline not initialized");
-            }
-            return spline->evaluate(phi, T);
         }
 
     private:
@@ -854,30 +787,154 @@ namespace EffectivePotential {
             file.close();
         }
 
-        void create_splines(const std::vector<double>& xphi, const std::vector<double>& xT,
-                            const std::vector<double>& yM_flat,
-                            int n_phi, int n_T, int n_mass, const std::string& bad_points_path) {
-            
-            // Check for bad points file existence before creating splines
-            if (std::filesystem::exists(bad_points_path)) {
-                throw std::runtime_error("Bad points file detected: " + bad_points_path + ". Please resolve the bad points before proceeding with interpolation.");
-            }
+        void create_mass_splines(const std::vector<double>& xphi, const std::vector<double>& xT, const std::vector<double>& yM_flat, int n_phi, int n_T, int n_mass) {
+            MassSplines result;
+            // 构建坏点掩码
+            std::vector<std::vector<bool>> is_bad(n_phi, std::vector<bool>(n_T, false));
+            std::string bad_points_path = "/home/dayun/data/bad_points_" + paramNumber + ".txt";
 
-            for (int k = 0; k < n_mass; ++k) {
-                // Extract column k from flat array
-                std::vector<double> z_data(static_cast<size_t>(n_phi) * n_T);
-                for (int i = 0; i < n_phi; ++i) {
-                    for (int j = 0; j < n_T; ++j) {
-                        size_t idx = static_cast<size_t>(i) * n_T + j;
-                        z_data[idx] = yM_flat[idx * n_mass + k];
+            if (std::filesystem::exists(bad_points_path)) {
+                std::ifstream bad_file(bad_points_path);
+                std::string line;
+                int line_num = 0;
+                while (std::getline(bad_file, line)) {
+                    line_num++;
+                    if (line.empty()) continue;
+                    std::istringstream iss(line);
+                    double phi, T;
+                    int i, j;
+                    // 尝试读取四个值：phi T i j
+                    if (!(iss >> phi >> T >> i >> j)) {
+                        // 如果读取失败且是第一行，可能是标题行，跳过
+                        if (line_num == 1) continue;
+                        // 否则输出警告并继续
+                        std::cerr << "Warning: malformed line in bad points file: " << line << std::endl;
+                        continue;
+                    }
+                    // 边界检查
+                    if (i >= 0 && i < n_phi && j >= 0 && j < n_T) {
+                        is_bad[i][j] = true;
+                    } else {
+                        std::cerr << "Warning: bad point index (" << i << "," << j 
+                                << ") out of range [0," << n_phi-1 << "] x [0," << n_T-1 << "]" << std::endl;
                     }
                 }
-                
-                // Replace LinearBivariateSpline with your preferred high-quality spline implementation
-                // e.g., GSL gsl_spline2d_alloc(gsl_spline2d_bicubic, ...)
-                mass_splines_.get_by_index(k) = std::make_unique<LinearBivariateSpline>(xphi, xT, z_data);
+                // 统计坏点数量
+                int bad_count = 0;
+                for (const auto& row : is_bad)
+                    bad_count += std::count(row.begin(), row.end(), true);
+                std::cout << "Loaded " << bad_count << " bad grid points from " << bad_points_path << std::endl;
+            } else {
+                std::cout << "No bad points file found. Assuming all grid points are valid." << std::endl;
+            }
+
+            alglib::real_1d_array xphi_alglib, xT_alglib;
+            xphi_alglib.setcontent(n_phi, xphi.data());
+            xT_alglib.setcontent(n_T, xT.data());
+
+            // 2. 局部三次样条插值（使用相邻最多10个点，调用父类 make_cubic_spline）
+            auto local_cubic_spline = [this](const std::vector<double>& xs, const std::vector<double>& ys, double x0) -> double {
+                const size_t n = xs.size();
+                if (n == 0) return std::nan("");
+                if (n == 1) return ys[0];
+                // 使用前最多10个点（实际传入时已经截取邻近的）
+                alglib::real_1d_array x_arr, y_arr;
+                x_arr.setcontent(n, xs.data());
+                y_arr.setcontent(n, ys.data());
+                alglib::spline1dinterpolant spline = make_cubic_spline(x_arr, y_arr);
+                return alglib::spline1dcalc(spline, x0);
+            };
+
+            // 3. 对每个质量进行处理
+            for (int k = 0; k < n_mass; ++k) {
+                // 提取二维网格，坏点置为NaN
+                std::vector<double> f_flat(n_phi * n_T);
+                for (int i = 0; i < n_phi; ++i) {
+                    for (int j = 0; j < n_T; ++j) {
+                        double val = yM_flat[(i * n_T + j) * n_mass + k];
+                        // ALGLIB 期望的索引: f_flat[j * n_phi + i] = value
+                        f_flat[j * n_phi + i] = is_bad[i][j] ? std::nan("") : val;
+                    }
+                }
+
+                // 填补坏点
+                for (int i = 0; i < n_phi; ++i) {
+                    for (int j = 0; j < n_T; ++j) {
+                        if (!is_bad[i][j]) continue;
+
+                        // 沿 T 方向（固定 i）：取 j 前后各10个点（最多20个有效）
+                        std::vector<double> T_vals, mass_vals;
+                        int start_j = std::max(0, j - 10);
+                        int end_j = std::min(n_T, j + 11);
+                        for (int jj = start_j; jj < end_j; ++jj) {
+                            if (!std::isnan(f_flat[jj * n_phi + i])) {
+                                T_vals.push_back(xT[jj]);
+                                mass_vals.push_back(f_flat[jj * n_phi + i]);
+                            }
+                        }
+                        if (T_vals.size() >= 2) {
+                            f_flat[j * n_phi + i] = local_cubic_spline(T_vals, mass_vals, xT[j]);
+                            continue;
+                        }
+
+                        // 沿 φ 方向（固定 j）：取 i 前后各10个点（最多20个有效）
+                        std::vector<double> phi_vals, mass_vals2;
+                        int start_i = std::max(0, i - 10);
+                        int end_i = std::min(n_phi, i + 11);
+                        for (int ii = start_i; ii < end_i; ++ii) {
+                            if (!std::isnan(f_flat[j * n_phi + ii])) {
+                                phi_vals.push_back(xphi[ii]);
+                                mass_vals2.push_back(f_flat[j * n_phi + ii]);
+                            }
+                        }
+                        if (phi_vals.size() >= 2) {
+                            f_flat[j * n_phi + i] = local_cubic_spline(phi_vals, mass_vals2, xphi[i]);
+                            continue;
+                        }
+
+                        // 回退：最近邻（3x3 邻域）
+                        bool found = false;
+                        for (int di = -1; di <= 1 && !found; ++di) {
+                            for (int dj = -1; dj <= 1 && !found; ++dj) {
+                                int ni = i + di, nj = j + dj;
+                                if (ni >= 0 && ni < n_phi && nj >= 0 && nj < n_T && !std::isnan(f_flat[nj * n_phi + ni])) {
+                                    f_flat[j * n_phi + i] = f_flat[nj * n_phi + ni];
+                                    found = true;
+                                }
+                            }
+                        }
+                        if (!found) f_flat[j * n_phi + i] = 0.0; // 极端情况（不应发生）
+                    }
+                }
+
+                 // 3.4 将 f_flat 转换为 alglib::real_1d_array
+                alglib::real_1d_array f_alglib;
+                f_alglib.setcontent(n_phi * n_T, f_flat.data());
+
+                // 3.5 构建双三次样条（向量版本，D=1）
+                alglib::spline2dinterpolant spline2d;
+                alglib::spline2dbuildbicubicv(xphi_alglib, n_phi, xT_alglib, n_T, f_alglib, 1, spline2d);
+
+                // 赋值
+                switch (k) {
+                    case 0:  result.Mh2   = spline2d; break;
+                    case 1:  result.MG2   = spline2d; break;
+                    case 2:  result.MA2   = spline2d; break;
+                    case 3:  result.MH2   = spline2d; break;
+                    case 4:  result.MHpm2 = spline2d; break;
+                    case 5:  result.MW2L  = spline2d; break;
+                    case 6:  result.MZ2L  = spline2d; break;
+                    case 7:  result.Mga2L = spline2d; break;
+                    case 8:  result.MW2T  = spline2d; break;
+                    case 9:  result.MZ2T  = spline2d; break;
+                    case 10: result.Mga2T = spline2d; break;
+                    case 11: result.swL   = spline2d; break;
+                    case 12: result.swT   = spline2d; break;
+                    default: std::cerr << "Error: unexpected mass index " << k << std::endl;
+                }
             }
         }
+
 
         // constants
         const double v0 = 246.22; // GeV
