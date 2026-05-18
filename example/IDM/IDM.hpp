@@ -90,7 +90,14 @@ namespace EffectivePotential {
         alglib::spline2dinterpolant swT;
     };
   
- 
+    struct ConterTermParameters {
+        double delta_mu1sq;
+        double delta_lam1;
+        double delta_mu2sq;
+        double delta_lamm;
+        double delta_lamp;
+        double delta_lam3;
+    };
 
     class IDM : public Potential {
     public:
@@ -139,17 +146,37 @@ namespace EffectivePotential {
             params.lam5 = lam5;
             return params;
         }
+        
+        ConterTermParameters get_counterterm_params() const {
+            ConterTermParameters ct_params;
+            ct_params.delta_mu1sq = delta_mu1sq;
+            ct_params.delta_lam1 = delta_lam1;
+            ct_params.delta_mu2sq = delta_mu2sq;
+            ct_params.delta_lamm = delta_lamm;
+            ct_params.delta_lamp = delta_lamp;
+            ct_params.delta_lam3 = delta_lam3;
+            return ct_params;
+        }
+
+        MassSplines get_mass_splines() const {
+            return mass_splines_;
+        }
+
         size_t get_n_scalars() const override { return 1; }
+        
         bool forbidden(Eigen::VectorXd X) const override { return X[0] < -0.1; } 
+        
         std::vector<Eigen::VectorXd> get_low_t_phases() const override { 
             Eigen::VectorXd phase(1);
             phase[0] = v0;
             return {phase};
         }
+        
         double V0(Eigen::VectorXd X) const {
             double phi = X[0];
             return 0.5 * mu1sq * square(phi) + 0.125 * lam1 * pow_4(phi);
         }
+        
         double V1CT(Eigen::VectorXd X) const {
             double phi = X[0];
             return 0.5 * delta_mu1sq * square(phi) + 0.125 * delta_lam1 * pow_4(phi);
@@ -244,8 +271,23 @@ namespace EffectivePotential {
                     return std::make_pair(MSquares, mixing_angles);
                 }
                 case ThermalMassScheme::Exact: { 
-                    // exact thermal masses, as it requires solving gap equations self-consistently. This can be implemented in the future if needed.
-                    return std::make_pair(std::vector<double>(11, 0.0), std::vector<double>(2, 0.0)); 
+                    // exact thermal masses, as it requires solving gap equations self-consistently. 
+                    double Mh2 = alglib::spline2dcalc(mass_splines_.Mh2, phi, T);
+                    double MG2 = alglib::spline2dcalc(mass_splines_.MG2, phi, T);
+                    double MA2 = alglib::spline2dcalc(mass_splines_.MA2, phi, T);
+                    double MH2 = alglib::spline2dcalc(mass_splines_.MH2, phi, T);
+                    double MHpm2 = alglib::spline2dcalc(mass_splines_.MHpm2, phi, T);
+                    double MW2L = alglib::spline2dcalc(mass_splines_.MW2L, phi, T);
+                    double MZ2L = alglib::spline2dcalc(mass_splines_.MZ2L, phi, T);
+                    double Mga2L = alglib::spline2dcalc(mass_splines_.Mga2L, phi, T);
+                    double MW2T = alglib::spline2dcalc(mass_splines_.MW2T, phi, T);
+                    double MZ2T = alglib::spline2dcalc(mass_splines_.MZ2T, phi, T);
+                    double Mga2T = alglib::spline2dcalc(mass_splines_.Mga2T, phi, T);
+                    double swL = alglib::spline2dcalc(mass_splines_.swL, phi, T);
+                    double swT = alglib::spline2dcalc(mass_splines_.swT, phi, T);
+                    std::vector<double> MSquares = {Mh2, MG2, MA2, MH2, MHpm2, MW2L, MZ2L, Mga2L, MW2T, MZ2T, Mga2T};
+                    std::vector<double> mixing_angles = {swL, swT};
+                    return std::make_pair(MSquares, mixing_angles);
                 }
                 default:
                     throw std::invalid_argument("unknown ThermalMassScheme");
@@ -517,20 +559,6 @@ namespace EffectivePotential {
         }
 
 
-        double Gamma_lamp() const {
-            double result = 0.0;
-            result += - 0.5 * lamp * lam1 * Ijb(square(mh), 0.0, 2) + 2.0 * lamp * square(lam1*v0) * Ijb(square(mh), 0.0, 3);
-            result += - 0.5 * lam2 * lamm * Ijb(square(mA), 0.0, 2) + 2.0 * lam2 * square(lamm*v0) * Ijb(square(mA), 0.0, 3);
-            result += - 1.5 * lam2 * lamp * Ijb(square(mH), 0.0, 2) + 6.0 * lam2 * square(lamp*v0) * Ijb(square(mH), 0.0, 3);
-            result += - lam2 * lam3 * Ijb(square(mHpm), 0.0, 2) + 2.0 * lam2 * square(lam3*v0) * Ijb(square(mHpm), 0.0, 3);
-            double mZ2 = 0.25 * (square(g) + square(gp)) * square(v0);
-            result -= 0.125 * square(square(g)+ square(gp)) * (3.0*Ijb(mZ2, 0.0, 2) + UV_term(mZ2, -2.0, 2) );
-            double mW2 = 0.25 * square(g) * square(v0);
-            result -= 0.25 * pow_4(g) * (3.0*Ijb(mW2, 0.0, 2) + UV_term(mW2, -2.0, 2) );
-
-            return result;
-        }
-
         void calc_conterterms() {
             SelfEnergy selfenergy(lam2, lamL, mA, mH, mHpm); 
 
@@ -787,31 +815,29 @@ namespace EffectivePotential {
             file.close();
         }
 
-        void create_mass_splines(const std::vector<double>& xphi, const std::vector<double>& xT, const std::vector<double>& yM_flat, int n_phi, int n_T, int n_mass) {
+        void create_mass_splines(const std::vector<double>& xphi, const std::vector<double>& xT, 
+                            const std::vector<double>& yM_flat, 
+                            int n_phi, int n_T, int n_mass) {
             MassSplines result;
-            // 构建坏点掩码
+            // Build bad point mask
             std::vector<std::vector<bool>> is_bad(n_phi, std::vector<bool>(n_T, false));
             std::string bad_points_path = "/home/dayun/data/bad_points_" + paramNumber + ".txt";
 
             if (std::filesystem::exists(bad_points_path)) {
                 std::ifstream bad_file(bad_points_path);
                 std::string line;
-                int line_num = 0;
+                std::getline(bad_file, line); // Skip header
                 while (std::getline(bad_file, line)) {
-                    line_num++;
                     if (line.empty()) continue;
                     std::istringstream iss(line);
                     double phi, T;
                     int i, j;
-                    // 尝试读取四个值：phi T i j
+                    // Try to read four values: phi T i j
                     if (!(iss >> phi >> T >> i >> j)) {
-                        // 如果读取失败且是第一行，可能是标题行，跳过
-                        if (line_num == 1) continue;
-                        // 否则输出警告并继续
                         std::cerr << "Warning: malformed line in bad points file: " << line << std::endl;
                         continue;
                     }
-                    // 边界检查
+                    // Boundary check
                     if (i >= 0 && i < n_phi && j >= 0 && j < n_T) {
                         is_bad[i][j] = true;
                     } else {
@@ -819,7 +845,7 @@ namespace EffectivePotential {
                                 << ") out of range [0," << n_phi-1 << "] x [0," << n_T-1 << "]" << std::endl;
                     }
                 }
-                // 统计坏点数量
+                // Count bad points
                 int bad_count = 0;
                 for (const auto& row : is_bad)
                     bad_count += std::count(row.begin(), row.end(), true);
@@ -832,12 +858,12 @@ namespace EffectivePotential {
             xphi_alglib.setcontent(n_phi, xphi.data());
             xT_alglib.setcontent(n_T, xT.data());
 
-            // 2. 局部三次样条插值（使用相邻最多10个点，调用父类 make_cubic_spline）
+            // 2. Local cubic spline interpolation (use at most 10 neighboring points, call parent class make_cubic_spline)
             auto local_cubic_spline = [this](const std::vector<double>& xs, const std::vector<double>& ys, double x0) -> double {
                 const size_t n = xs.size();
                 if (n == 0) return std::nan("");
                 if (n == 1) return ys[0];
-                // 使用前最多10个点（实际传入时已经截取邻近的）
+                // Use at most 10 points (already truncated to neighbors when passed in)
                 alglib::real_1d_array x_arr, y_arr;
                 x_arr.setcontent(n, xs.data());
                 y_arr.setcontent(n, ys.data());
@@ -845,77 +871,71 @@ namespace EffectivePotential {
                 return alglib::spline1dcalc(spline, x0);
             };
 
-            // 3. 对每个质量进行处理
+            // 3. Process each mass
             for (int k = 0; k < n_mass; ++k) {
-                // 提取二维网格，坏点置为NaN
+                // Extract 2D grid, set bad points to NaN
                 std::vector<double> f_flat(n_phi * n_T);
                 for (int i = 0; i < n_phi; ++i) {
                     for (int j = 0; j < n_T; ++j) {
-                        double val = yM_flat[(i * n_T + j) * n_mass + k];
-                        // ALGLIB 期望的索引: f_flat[j * n_phi + i] = value
-                        f_flat[j * n_phi + i] = is_bad[i][j] ? std::nan("") : val;
-                    }
-                }
-
-                // 填补坏点
-                for (int i = 0; i < n_phi; ++i) {
-                    for (int j = 0; j < n_T; ++j) {
-                        if (!is_bad[i][j]) continue;
-
-                        // 沿 T 方向（固定 i）：取 j 前后各10个点（最多20个有效）
-                        std::vector<double> T_vals, mass_vals;
-                        int start_j = std::max(0, j - 10);
-                        int end_j = std::min(n_T, j + 11);
-                        for (int jj = start_j; jj < end_j; ++jj) {
-                            if (!std::isnan(f_flat[jj * n_phi + i])) {
-                                T_vals.push_back(xT[jj]);
-                                mass_vals.push_back(f_flat[jj * n_phi + i]);
-                            }
-                        }
-                        if (T_vals.size() >= 2) {
-                            f_flat[j * n_phi + i] = local_cubic_spline(T_vals, mass_vals, xT[j]);
-                            continue;
-                        }
-
-                        // 沿 φ 方向（固定 j）：取 i 前后各10个点（最多20个有效）
-                        std::vector<double> phi_vals, mass_vals2;
-                        int start_i = std::max(0, i - 10);
-                        int end_i = std::min(n_phi, i + 11);
-                        for (int ii = start_i; ii < end_i; ++ii) {
-                            if (!std::isnan(f_flat[j * n_phi + ii])) {
-                                phi_vals.push_back(xphi[ii]);
-                                mass_vals2.push_back(f_flat[j * n_phi + ii]);
-                            }
-                        }
-                        if (phi_vals.size() >= 2) {
-                            f_flat[j * n_phi + i] = local_cubic_spline(phi_vals, mass_vals2, xphi[i]);
-                            continue;
-                        }
-
-                        // 回退：最近邻（3x3 邻域）
-                        bool found = false;
-                        for (int di = -1; di <= 1 && !found; ++di) {
-                            for (int dj = -1; dj <= 1 && !found; ++dj) {
-                                int ni = i + di, nj = j + dj;
-                                if (ni >= 0 && ni < n_phi && nj >= 0 && nj < n_T && !std::isnan(f_flat[nj * n_phi + ni])) {
-                                    f_flat[j * n_phi + i] = f_flat[nj * n_phi + ni];
-                                    found = true;
+                        // ALGLIB expects index: f_flat[j * n_phi + i] = value
+                        if (!is_bad[i][j]) {
+                            f_flat[j * n_phi + i] = yM_flat[(i * n_T + j) * n_mass + k];
+                        } else { // Fill bad points
+                            // Along T direction (fixed i): take up to 10 points before and after j (max 20 valid)
+                            std::vector<double> T_vals, mass_vals;
+                            int start_j = std::max(0, j - 10);
+                            int end_j = std::min(n_T, j + 11);
+                            for (int jj = start_j; jj < end_j; ++jj) {
+                                if (!is_bad[i][jj]) {
+                                    T_vals.push_back(xT[jj]);
+                                    mass_vals.push_back(yM_flat[(i * n_T + jj) * n_mass + k]);
                                 }
                             }
+                            if (T_vals.size() >= 2) {
+                                f_flat[j * n_phi + i] = local_cubic_spline(T_vals, mass_vals, xT[j]);
+                                continue;
+                            }
+
+                            // Along phi direction (fixed j): take up to 10 points before and after i (max 20 valid)
+                            std::vector<double> phi_vals, mass_vals2;
+                            int start_i = std::max(0, i - 10);
+                            int end_i = std::min(n_phi, i + 11);
+                            for (int ii = start_i; ii < end_i; ++ii) {
+                                if (!is_bad[ii][j]) {
+                                    phi_vals.push_back(xphi[ii]);
+                                    mass_vals2.push_back(yM_flat[(ii * n_T + j) * n_mass + k]);
+                                }
+                            }
+                            if (phi_vals.size() >= 2) {
+                                f_flat[j * n_phi + i] = local_cubic_spline(phi_vals, mass_vals2, xphi[i]);
+                                continue;
+                            }
+
+                            // Fallback: nearest neighbor (3x3 neighborhood)
+                            bool found = false;
+                            for (int di = -1; di <= 1 && !found; ++di) {
+                                for (int dj = -1; dj <= 1 && !found; ++dj) {
+                                    int ni = i + di, nj = j + dj;
+                                    if (ni >= 0 && ni < n_phi && nj >= 0 && nj < n_T && !is_bad[ni][nj]) {
+                                        f_flat[j * n_phi + i] = f_flat[nj * n_phi + ni];
+                                        found = true;
+                                    }
+                                }
+                            }
+                            if (!found) f_flat[j * n_phi + i] = 0.0; // Extreme case (should not happen)
                         }
-                        if (!found) f_flat[j * n_phi + i] = 0.0; // 极端情况（不应发生）
                     }
                 }
 
-                 // 3.4 将 f_flat 转换为 alglib::real_1d_array
+                 // 3.4 Convert f_flat to alglib::real_1d_array
                 alglib::real_1d_array f_alglib;
                 f_alglib.setcontent(n_phi * n_T, f_flat.data());
 
-                // 3.5 构建双三次样条（向量版本，D=1）
+                // 3.5 Build bicubic spline (vector version, D=1)
                 alglib::spline2dinterpolant spline2d;
                 alglib::spline2dbuildbicubicv(xphi_alglib, n_phi, xT_alglib, n_T, f_alglib, 1, spline2d);
 
-                // 赋值
+                // Assign
                 switch (k) {
                     case 0:  result.Mh2   = spline2d; break;
                     case 1:  result.MG2   = spline2d; break;
@@ -935,6 +955,19 @@ namespace EffectivePotential {
             }
         }
 
+        double Gamma_lamp() const {
+            double result = 0.0;
+            result += - 0.5 * lamp * lam1 * Ijb(square(mh), 0.0, 2) + 2.0 * lamp * square(lam1*v0) * Ijb(square(mh), 0.0, 3);
+            result += - 0.5 * lam2 * lamm * Ijb(square(mA), 0.0, 2) + 2.0 * lam2 * square(lamm*v0) * Ijb(square(mA), 0.0, 3);
+            result += - 1.5 * lam2 * lamp * Ijb(square(mH), 0.0, 2) + 6.0 * lam2 * square(lamp*v0) * Ijb(square(mH), 0.0, 3);
+            result += - lam2 * lam3 * Ijb(square(mHpm), 0.0, 2) + 2.0 * lam2 * square(lam3*v0) * Ijb(square(mHpm), 0.0, 3);
+            double mZ2 = 0.25 * (square(g) + square(gp)) * square(v0);
+            result -= 0.125 * square(square(g)+ square(gp)) * (3.0*Ijb(mZ2, 0.0, 2) + UV_term(mZ2, -2.0, 2) );
+            double mW2 = 0.25 * square(g) * square(v0);
+            result -= 0.25 * pow_4(g) * (3.0*Ijb(mW2, 0.0, 2) + UV_term(mW2, -2.0, 2) );
+
+            return result;
+        }
 
         // constants
         const double v0 = 246.22; // GeV
