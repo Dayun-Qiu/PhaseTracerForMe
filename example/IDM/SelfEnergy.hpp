@@ -116,14 +116,22 @@ namespace EffectivePotential {
             case 1:
                 return (1 / (16 * square(M_PI))) * (m2 - square(RG_scale)*xlogx(x_0)); 
             case 2:{
-                if (std::abs(x_0) <= std::numeric_limits<double>::min()) {
-                    throw std::runtime_error("x_0 is too small in zeroT_term_deriv, which may cause infared divergence.");
+                // if (std::abs(x_0) <= std::numeric_limits<double>::min()) {
+                //     throw std::runtime_error("x_0 is too small in zeroT_term_deriv, which may cause infared divergence.");
+                // }
+                if (std::abs(x_0) < 1e-4) {
+                    if (x_0 < 0.0) x_0 = std::min(-1e-4, x_0);
+                    if (x_0 > 0.0) x_0 = std::max(1e-4, x_0);
                 }
-                return - xlogx(x_0)/x_0 / (16 * square(M_PI));
+                return - (xlogx(x_0)/x_0) / (16 * square(M_PI));
             }
             case 3: {
-                if (std::abs(x_0) <= std::numeric_limits<double>::min()) {
-                    throw std::runtime_error("x_0 is too small in zeroT_term_deriv, which may cause infared divergence.");
+                // if (std::abs(x_0) <= std::numeric_limits<double>::min()) {
+                //     throw std::runtime_error("x_0 is too small in zeroT_term_deriv, which may cause infared divergence.");
+                // }
+                if (std::abs(x_0) < 1e-4) {
+                    if (x_0 < 0.0) x_0 = std::min(-1e-4, x_0);
+                    if (x_0 > 0.0) x_0 = std::max(1e-4, x_0);
                 }
                 return - 1 / (16 * square(M_PI) * m2);
             }
@@ -488,7 +496,7 @@ namespace EffectivePotential {
 
                 // Perform integration over [0, 1]
                 // 1e-4 is the relative tolerance
-                double result = gauss_kronrod<double, 15>::integrate(integrand, 0.0, 1.0, 50, 1e-4);
+                double result = gauss_kronrod<double, 15>::integrate(integrand, 0.0, 1.0, 20, 1e-4);
                 return result;
             }
 
@@ -521,7 +529,7 @@ namespace EffectivePotential {
                     return -x * (1.0 - x) * Pisum;
                 };
 
-                double result = gauss_kronrod<double, 15>::integrate(integrand, 0.0, 1.0, 50, 1e-4);
+                double result = gauss_kronrod<double, 15>::integrate(integrand, 0.0, 1.0, 20, 1e-4);
                 return result;
             }
 

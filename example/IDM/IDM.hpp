@@ -162,6 +162,19 @@ namespace EffectivePotential {
             return mass_splines_;
         }
 
+        bool check_perturbativity() const {
+            double max_coupling = std::max({std::abs(lam1), std::abs(lam2), std::abs(lam3), std::abs(lam4), std::abs(lam5)});
+            return max_coupling < 4 * M_PI; // Perturbativity condition
+        }
+
+        bool check_vacuum_stability() const {
+            // Vacuum stability conditions for IDM
+            bool condition1 = lam1 > 0;
+            bool condition2 = lam2 > 0;
+            bool condition3 = lam3 + std::min(0.0, lam4 - std::abs(lam5)) > -std::sqrt(lam1 * lam2);
+            return condition1 && condition2 && condition3;
+        }
+
         size_t get_n_scalars() const override { return 1; }
         
         bool forbidden(Eigen::VectorXd X) const override { return X[0] < -0.1; } 
