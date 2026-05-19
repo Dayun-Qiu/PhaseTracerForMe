@@ -25,10 +25,8 @@
 #include <memory>
 #include <thread>
 #include <Eigen/Dense>
-#include <gsl/gsl_spline2d.h>
-#include <gsl/gsl_interp2d.h>
-
-#include "potential.hpp"
+#include <interpolation.h>
+#include "effectivepotential/potential.hpp"
 #include "SelfEnergy.hpp"
 
 namespace EffectivePotential {

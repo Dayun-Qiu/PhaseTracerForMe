@@ -7,7 +7,9 @@
                 "/home/dayun/PhaseTracerForMe/EffectivePotential/include/effectivepotential/",
                 "/home/dayun/PhaseTracerForMe/include/",
                 "/usr/include/**",
-                "/usr/include/eigen3"
+                "/usr/include/eigen3",
+                "/usr/include/python3.13",
+                "/home/dayun/PhaseTracerForMe/.venv/lib/python3.13/site-packages/pybind11/include"
             ],
             "defines": [],
             "cppStandard": "c++17",
