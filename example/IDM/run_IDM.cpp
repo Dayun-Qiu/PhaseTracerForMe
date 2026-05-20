@@ -7,20 +7,64 @@
 #include <string>
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <map>
 
 
-int get_inputs(double& lam2, double& lamL, double& mA, double& mH, double& mHpm, std::string& paramNumber, std::string& Resum);
+bool parse_command_line_args(int argc, char *argv[], double& lam2, double& lamL, double& mA, double& mH, double& mHpm, std::string& paramNumber, std::string& Resum) {
 
-// 新增：核心计算函数，接受参数并返回 v_over_T
+    std::map<std::string, std::string> args_map;
+    
+    for (int i = 1; i < argc; ++i) {
+        std::string arg = argv[i];
+        if (arg.substr(0, 2) == "--" && i + 1 < argc) {
+            std::string key = arg.substr(2);
+            std::string value = argv[i + 1];
+            args_map[key] = value;
+            i++; 
+        }
+    }
+
+    try {
+        auto get_double = [&args_map](const std::string& key, double default_val) -> double {
+            auto it = args_map.find(key);
+            if (it != args_map.end()) {
+                try {
+                    return std::stod(it->second);
+                } catch (const std::exception&) {
+                    std::cerr << "Warning: Invalid double value for key '" << key << "'. Using default." << std::endl;
+                    return default_val;
+                }
+            }
+            return default_val;
+        };
+        
+        auto get_string = [&args_map](const std::string& key, const std::string& default_val) -> std::string {
+            if (args_map.find(key) != args_map.end()) {
+                return args_map.at(key);
+            }
+            return default_val;
+        };
+
+        // Use default values if arguments are not provided
+        lam2 = get_double("lam2", lam2);
+        lamL = get_double("lamL", lamL);
+        mA = get_double("mA", mA);
+        mH = get_double("mH", mH);
+        mHpm = get_double("mHpm", mHpm);
+        paramNumber = get_string("paramNumber", paramNumber);
+        Resum = get_string("Resum", Resum);
+        
+        return true;
+    } catch (const std::exception& e) {
+        std::cerr << "Error parsing command line arguments: " << e.what() << std::endl;
+        return false;
+    }
+}
+
 double calculate_v_over_T(double lam2, double lamL, double mA, double mH, double mHpm, const std::string& paramNumber, const std::string& resum) {
     // Force fatal logging to avoid cluttering stdout which is parsed by Python
     LOGGER(fatal);
-
-    // 【新增】输入参数合法性检查，防止非法质量值导致后续计算崩溃
-    if (mA <= 0.0 || mH <= 0.0 || mHpm <= 0.0) {
-        std::cerr << "DEBUG: Invalid mass parameters (must be positive): mA=" << mA << ", mH=" << mH << ", mHpm=" << mHpm << std::endl;
-        return std::nan("");
-    }
 
     EffectivePotential::IDM idm;
     // Initialize the IDM parameters
@@ -59,11 +103,10 @@ double calculate_v_over_T(double lam2, double lamL, double mA, double mH, double
 
     // Make PhaseFinder object and find the phases
     PhaseTracer::PhaseFinder pf(idm);
-    //pf.set_upper_bounds({400.0});
-    //pf.set_lower_bounds({0.0});
-    //pf.set_t_high(300.0);
-    //pf.set_v(246.22);
-    //pf.set_seed(486149);
+    pf.set_upper_bounds({400.0});
+    pf.set_lower_bounds({-400.0});
+    pf.set_t_high(300.0);
+    pf.set_v(246.22);
     
     try {
         pf.find_phases();
@@ -91,14 +134,10 @@ double calculate_v_over_T(double lam2, double lamL, double mA, double mH, double
     // extract transitions
     auto t = tf.get_transitions();
     if (t.size() < 1) {
-        // 这可能只是表示没有发生相变，不一定是错误
         // std::cerr << "DEBUG: No transitions found for mA=" << mA << " mH=" << mH << std::endl; 
         return std::nan("");
     }
 
-    // 【修正】检查 t[0] 中的关键数据成员是否为空，防止访问空容器导致 Segmentation Fault
-    // 原逻辑错误：if (size || size) 意味着如果有数据则报错。
-    // 正确逻辑：如果数据为空，则无法访问 [0]，应返回 NaN。
     if (t[0].true_vacuum_TN.size() == 0) {
         std::cerr << "DEBUG: Transition data invalid (empty vacuum vectors) for mA=" << mA << " mH=" << mH << std::endl;
         return std::nan("");
@@ -123,16 +162,28 @@ int main(int argc, char *argv[]) {
 
     double v_over_T;
 
-    double lam2, lamL, mA, mH, mHpm;
-    std::string paramNumber, resum;
+    // Set default values for parameters
+    double lam2 = 0.2;
+    double lamL = 0.0015;
+    double mA = 300.0;
+    double mH = 65.0;
+    double mHpm = 300.0;
+    std::string paramNumber = "1";
+    std::string resum = "None";
 
-    // Get input parameters from file
-    if (get_inputs(lam2, lamL, mA, mH, mHpm, paramNumber, resum) != 0) {
-        std::cout << "nan" << std::endl;
-        return 0;
+    bool input_loaded = false;
+
+    if (argc > 1) {
+        input_loaded = parse_command_line_args(argc, argv, lam2, lamL, mA, mH, mHpm, paramNumber, resum);
+        if (input_loaded) {
+            std::cerr << "[Info] Parameters loaded from command line." << std::endl;
+        } else {
+            std::cerr << "[Warning] Failed to load parameters from command line. Using default values." << std::endl;
+        }
+    } else {
+        std::cerr << "[Info] No command line arguments provided. Using default values." << std::endl;
     }
 
-    // 调用新的核心函数
     v_over_T = calculate_v_over_T(lam2, lamL, mA, mH, mHpm, paramNumber, resum);
 
     // Output only the result for Python to parse
@@ -142,46 +193,6 @@ int main(int argc, char *argv[]) {
         std::cout << v_over_T << std::endl;
     }
 
-    return 0;
-}
-
-int get_inputs(double& lam2, double& lamL, double& mA, double& mH, double& mHpm, std::string& paramNumber, std::string& Resum) {
-    std::ifstream f("/home/dayun/IDM_input.txt");
-    if (!f) {
-        std::cerr << "Error: cannot open input file\n";
-        return 1;
-    }
-    std::string line;
-    while (std::getline(f, line)) {
-        if (line.empty() || line[0] == '#') continue;
-        std::istringstream iss(line);
-        std::string key, value;
-        if (!std::getline(iss, key, '=')) continue;
-        
-        std::getline(iss, value);  
-
-        auto trim = [](std::string& s) {
-            s.erase(0, s.find_first_not_of(" \t\r\n"));
-            s.erase(s.find_last_not_of(" \t\r\n") + 1);
-        };
-        trim(key); trim(value);
-        
-        if (key == "paramNumber") paramNumber = value;
-        else if (key == "Resum") Resum = value ;
-        else {
-            try {
-                double d = std::stod(value);
-                if (key == "lam2") lam2 = d;
-                else if (key == "lamL") lamL = d;
-                else if (key == "mA") mA = d;
-                else if (key == "mH") mH = d;
-                else if (key == "mHpm") mHpm = d;
-            } catch (const std::exception& e) {
-                std::cerr << "Warning: invalid number for key '" << key << "': " << e.what() << std::endl;
-                return 1;
-            }
-        }
-    }
     return 0;
 }
 

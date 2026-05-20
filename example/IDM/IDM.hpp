@@ -177,6 +177,9 @@ namespace EffectivePotential {
         
         bool forbidden(Eigen::VectorXd X) const override { return X[0] < -0.1; } 
         
+        std::vector<Eigen::VectorXd> apply_symmetry(Eigen::VectorXd X) const override {
+            return {-X};
+        }
         std::vector<Eigen::VectorXd> get_low_t_phases() const override { 
             Eigen::VectorXd phase(1);
             phase[0] = v0;
