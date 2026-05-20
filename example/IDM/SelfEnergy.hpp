@@ -121,7 +121,7 @@ namespace EffectivePotential {
                 // }
                 if (std::abs(x_0) < 1e-4) {
                     if (x_0 < 0.0) x_0 = std::min(-1e-4, x_0);
-                    if (x_0 > 0.0) x_0 = std::max(1e-4, x_0);
+                    if (x_0 >= 0.0) x_0 = std::max(1e-4, x_0);
                 }
                 return - (xlogx(x_0)/x_0) / (16 * square(M_PI));
             }
@@ -131,7 +131,7 @@ namespace EffectivePotential {
                 // }
                 if (std::abs(x_0) < 1e-4) {
                     if (x_0 < 0.0) x_0 = std::min(-1e-4, x_0);
-                    if (x_0 > 0.0) x_0 = std::max(1e-4, x_0);
+                    if (x_0 >= 0.0) x_0 = std::max(1e-4, x_0);
                 }
                 return - 1 / (16 * square(M_PI) * m2);
             }
@@ -565,8 +565,8 @@ namespace EffectivePotential {
 
                 double Pisum = 0.0;   
                 Pisum += Pihtt(mt2, T);
-                // Pisum += Pihhh(mh2, T, phi); 
-                // Pisum += PihGG(mG2, T, phi);
+                //Pisum += Pihhh(mh2, T, phi); 
+                //Pisum += PihGG(mG2, T, phi);
                 Pisum += PihAA(mA2, T, phi);
                 Pisum += PihHH(mH2, T, phi);
                 Pisum += PihHpHm(mHpm2, T, phi);
@@ -2469,7 +2469,7 @@ namespace EffectivePotential {
              * @return The loss value (norm of the difference between input and calculated masses)
              * and the new mass spectrum (vector of size 13: 11 masses + swL + swT)
              */
-            std::pair<double, std::vector<double>> calc_loss(const std::pair<std::vector<double>, std::vector<double>>& bosons, const std::vector<double>& x, double phi, double T) {
+            std::pair<std::vector<double>, std::vector<double>> calc_loss(const std::pair<std::vector<double>, std::vector<double>>& bosons, const std::vector<double>& x, double phi, double T) {
                 // Tree-level boson mass spectrum and conterterms
                 const auto& [mass_squared_values, mixing_angles] = bosons;
                 const double mh2_init = mass_squared_values[0];
@@ -2489,7 +2489,7 @@ namespace EffectivePotential {
 
                 // h mass
                 double Mh2 = mh2_init + Pih4(T, x) + Pih3(T, x, mt2_init, phi);
-                
+                //std::cout << "Pih3: " << Pih3(T, x, mt2_init, phi) << std::endl;
                 // G mass
                 double MG2 = mG2_init + PiG4(T, x) + PiG3(T, x, mt2_init, phi);
                 
@@ -2514,12 +2514,14 @@ namespace EffectivePotential {
                 Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solverL(M2Lmatrix);
                 double Mga2L = solverL.eigenvalues()[0];
                 double MZ2L = solverL.eigenvalues()[1];
-                double sL = solverL.eigenvectors()(0,0);
+                double sL = std::abs(solverL.eigenvectors()(0,0));
 
                 // Gauge boson mass (Transverse): mga2T, mZ2T, swT
                 double M332T = m332_init + Pi33T4(T, x) + Pi33T3(T, x, mt2_init, phi);
                 double M442T = m442_init + Pi44T4(T, x) + Pi44T3(T, x, mt2_init, phi);
                 double M342T = m342_init + Pi34T4(T, x) + Pi34T3(T, x, mt2_init, phi);
+                //std::cout << "det " << M332T*M442T - M342T*M342T << std::endl;
+                //std::cout << "Pi34T4: " << Pi34T4(T, x) << std::endl;
                 
                 // Solve for Z and photon masses (Transverse)
                 Eigen::Matrix2d M2Tmatrix;
@@ -2528,7 +2530,7 @@ namespace EffectivePotential {
                 Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solverT(M2Tmatrix);
                 double Mga2T = solverT.eigenvalues()[0];
                 double MZ2T = solverT.eigenvalues()[1];
-                double sT = solverT.eigenvectors()(0,0);
+                double sT = std::abs(solverT.eigenvectors()(0,0));
 
                 // Gauge boson mass (W): mW2L, mW2T
                 double MW2L = mW2_init + PiWL4(T, x) + PiWL3(T, x, mt2_init, phi);
@@ -2538,16 +2540,22 @@ namespace EffectivePotential {
                 std::vector<double> x_new = {Mh2, MG2, MA2, MH2, MHpm2, MW2L, MZ2L, Mga2L, MW2T, MZ2T, Mga2T, sL, sT};
                 
                 // Calculate the difference
-                Eigen::VectorXd deltaMB2(13);
-                for (int i = 0; i < 13; ++i) {
-                    if (x[i] <= 1e-3) {
-                        deltaMB2[i] = std::abs(x[i] - x_new[i]);
+                Eigen::VectorXd deltaMB2(13); 
+                Eigen::VectorXd precise(13);
+                for (int i = 0; i < 11; ++i) {
+                    deltaMB2[i] = x[i] - x_new[i];
+                    if (std::abs(x[i]) <= 1.0) {
+                        precise[i] = std::abs(x[i] - x_new[i]);
                     } else {
-                        deltaMB2[i] = std::abs((x[i] - x_new[i]) / x[i]);
+                        precise[i] = std::abs((x[i] - x_new[i]) / x[i]);
                     }
                 }
-                
-                return make_pair(deltaMB2.sum(), x_new);
+                deltaMB2[11] = x[11] - x_new[11];
+                deltaMB2[12] = x[12] - x_new[12];
+                precise[11] = std::abs(x[11] - x_new[11]);
+                precise[12] = std::abs(x[12] - x_new[12]);
+                std::vector<double> d_p = {precise.sum(), deltaMB2.norm()};
+                return make_pair(d_p, x_new);
             }
 
 
@@ -2568,30 +2576,26 @@ namespace EffectivePotential {
 
                 for (int iter = 0; iter < max_iter; ++iter) {
                     auto [loss_new, x_new] = calc_loss(bosons_bare, prev, phi, T);
-
-                    if (loss_new < tol) {
+                    //if (std::isnan(loss_new)) throw std::runtime_error("NaN encountered in loss function");
+                    if (loss_new[0] < tol) { //converged condition, using precise condition
                         result.x = x_new;
-                        result.loss = loss_new;
+                        result.loss = loss_new[0];
                         result.success = true;
                         result.message = "Converged to specified precision after " + std::to_string(iter + 1) + " iterations";
                         return result;
                     }
                     else {
-                        // checking the loss value if decreased 
-                        if (loss_new > loss) { // improve the iteration
-                            if (iter < 50) loss = loss_new;
-
-                            for (int i = 0; i < 13; ++i) {
-                                prev[i] = prev_prev[i] + 0.5 * (prev[i] - prev_prev[i]); // simple extrapolation
-                            } 
-                        } else {
-                            prev_prev = prev;
-                            prev = x_new;
-                            loss = loss_new;
-                        }
-                    }
+                        prev_prev = prev;
+                        loss = loss_new[0];    
+                        for (int i = 0; i < 13; ++i) {
+                            prev[i] = prev_prev[i] + 0.3 * (x_new[i] - prev_prev[i]); // simple extrapolation
+                        } 
+                    }  
+                    //std::cout << "Iteration: " << iter << " Mga2T: " << x_new[10] << std::endl;
+                    //std::cout << "Iteration: " << iter << " MZ2T: " << x_new[9] << std::endl;
                 }
                 result.x = prev_prev; // Return the last mass spectrum before the final iteration
+                //for (int i = 0; i < 13; ++i) std::cout << prev_prev[i] << std::endl;
                 result.loss = loss;
                 result.success = false;
                 result.message = "Failed to converge after maximum iterations";

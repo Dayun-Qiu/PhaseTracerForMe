@@ -6,9 +6,8 @@ import subprocess
 from concurrent.futures import ProcessPoolExecutor, as_completed
 
 
-plt.rcParams['text.usetex'] = False
-plt.rcParams['font.family'] = 'serif'
-plt.rcParams['mathtext.fontset'] = 'stix' 
+plt.rc('text', usetex=True)
+plt.rc('font', family='serif') 
 
 
 CPP_EXECUTABLE = "/home/dayun/PhaseTracerForMe/bin/run_IDM" 
@@ -16,24 +15,19 @@ CPP_EXECUTABLE = "/home/dayun/PhaseTracerForMe/bin/run_IDM"
 def run_single_simulation(args):
     """
     单个点的模拟函数，供多进程调用
-    args: (mA, mH, other_fixed_params_dict)
+    params: (i, j, dict[lam2, lamL, mA, mH, mHpm, paramNumber, Resum])
     """
-    _, _, mA, mH, fixed_params = args
-    
-    try:
-        # 增加参数合法性预检查，避免传入明显非法的值给 C++
-        if mA <= 0 or mH <= 0:
-            return mA, mH, np.nan
-            
+    _, _, params = args
+    try:    
         cmd = [
             CPP_EXECUTABLE,
-            "--lam2", str(fixed_params['lam2']),
-            "--lamL", str(fixed_params['lamL']),
-            "--mA", str(mA),
-            "--mH", str(mH),
-            "--mHpm", str(fixed_params.get('mHpm', mA)), # 允许固定参数中指定 mHpm，否则默认等于 mA
-            "--paramNumber", str(fixed_params['paramNumber']),
-            "--Resum", str(fixed_params['Resum'])
+            "--lam2", str(params['lam2']),
+            "--lamL", str(params['lamL']),
+            "--mA", str(params['mA']),
+            "--mH", str(params['mH']),
+            "--mHpm", str(params['mHpm']), 
+            "--paramNumber", str(params['paramNumber']),
+            "--Resum", str(params['Resum'])
         ]
         
         result = subprocess.run(
@@ -45,31 +39,35 @@ def run_single_simulation(args):
         
         # 检查返回码
         if result.returncode != 0:
-            print(f"Warning: C++ process failed for mA={mA}, mH={mH}. Stderr: {result.stderr}", flush=True)
-            return mA, mH, np.nan
+            #print(f"Warning: C++ process failed for mA={mA}, mH={mH}. Stderr: {result.stderr}", flush=True)
+            return np.nan
             
         # 解析输出
-        output_str = result.stdout.strip()
-        if not output_str:
-            return mA, mH, np.nan
+        # 获取所有非空行，并取最后一行作为结果
+        lines = [line.strip() for line in result.stdout.splitlines() if line.strip()]
+        if not lines:
+            return np.nan
             
+        output_str = lines[-1]
+        
+        if not output_str:
+            return np.nan 
         try:
             v_over_T = float(output_str)
         except ValueError:
-            print(f"Warning: Could not parse output '{output_str}' for mA={mA}, mH={mH}", flush=True)
-            return mA, mH, np.nan
+            #print(f"Warning: Could not parse output '{output_str}' for mA={mA}, mH={mH}", flush=True)
+            return np.nan
             
         if np.isnan(v_over_T):
-            return mA, mH, np.nan
-            
-        return mA, mH, v_over_T  
+            return np.nan      
+        return v_over_T  
                 
     except Exception as e:
         # 记录错误以便调试，包含参数信息
-        import traceback
-        error_msg = f"Error at mA={mA}, mH={mH}: {str(e)}\n{traceback.format_exc()}"
-        print(error_msg, flush=True)
-        return mA, mH, np.nan
+        #import traceback
+        #error_msg = f"Error at mA={mA}, mH={mH}: {str(e)}\n{traceback.format_exc()}"
+        #print(error_msg, flush=True)
+        return np.nan
 
 def main():
     """
@@ -78,10 +76,13 @@ def main():
     mA_values = np.linspace(200, 400, 20) # 示例范围
     mH_values = np.linspace(60, 200, 20) # 示例范围
     
-    # 固定参数
-    fixed_params = {
+    
+    params = {
         'lam2': 0.2,      # 示例值
         'lamL': 0.0015,      # 示例值
+        'mA': 0.0,
+        'mH': 0.0,
+        'mHpm': 0.0,
         'paramNumber': "1",
         'Resum': "DJ"
     }
@@ -96,8 +97,16 @@ def main():
     tasks = []
     for i, mA in enumerate(mA_values):
         for j, mH in enumerate(mH_values):
+            # 修复: 创建 params 的副本，避免所有任务共享同一个字典引用
+            task_params = params.copy()
+            
             # 传递索引 i, j 以便后续填充数组
-            tasks.append((i, j, mA, mH, fixed_params))
+            task_params['mA'] = mA
+            task_params['mH'] = mH
+            task_params['mHpm'] = mA
+            
+            # 使用包含独立参数副本的元组
+            tasks.append((i, j, task_params))
             
     print(f"Starting parallel scan with {len(tasks)} points...")
     
@@ -127,16 +136,15 @@ def main():
             
         for future in iterator:
             task = future_to_task[future]
-            idx_i, idx_j, mA, mH, _ = task
+            idx_i, idx_j, _ = task
             try:
                 result = future.result()
-                # result format: (idx_i, idx_j, mA, mH, vot)
-                _, _, vot = result
+                vot = result
                 
                 if np.isnan(vot):
                     nan_count += 1
-                    if nan_count <= 5:
-                        print(f"Debug: NaN result for mA={mA:.2f}, mH={mH:.2f}. Check C++ stderr for details.")
+                    # if nan_count <= 5:
+                    #     print(f"Debug: NaN result for mA={mA:.2f}, mH={mH:.2f}. Check C++ stderr for details.")
                 else:
                     valid_count += 1
                     
@@ -146,9 +154,9 @@ def main():
             except Exception as e:
                 # 捕获执行过程中的异常
                 error_count += 1
-                print(f"Task FAILED for mA={mA:.4f}, mH={mH:.4f}: {type(e).__name__}: {e}", flush=True)
-                import traceback
-                traceback.print_exc()
+                # print(f"Task FAILED for mA={mA:.4f}, mH={mH:.4f}: {type(e).__name__}: {e}", flush=True)
+                # import traceback
+                # traceback.print_exc()
                 # 保持默认为 nan，无需额外操作，因为预分配时已设为 nan
             
             # 如果不使用 tqdm，每完成一定数量任务打印一次进度
@@ -175,11 +183,14 @@ def main():
     
     X, Y = np.meshgrid(mH_values, mA_values)
     CF = plt.contourf(X, Y, v_over_T_grid, cmap='viridis')
-    plt.colorbar(CF, label='$v_n/T_n$')
+    cbar = plt.colorbar(CF, label='$v_n/T_n$')
+    cbar.ax.yaxis.label.set_size(20)
+    cbar.ax.tick_params(labelsize=17)
     plt.title('IDM Phase Transition Strength Scan')
-    plt.xlabel('$m_H$ [GeV]')
-    plt.ylabel('$m_A$ [GeV]')
+    plt.xlabel('$m_H$ [GeV]', fontsize = 20)
+    plt.ylabel('$m_A$ [GeV]', fontsize = 20)
     plt.tight_layout()
+    plt.tick_params(labelsize=17)
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.savefig("/home/dayun/fig/DJ.png", dpi=300)
     print("Plot saved to /home/dayun/fig/DJ.png")

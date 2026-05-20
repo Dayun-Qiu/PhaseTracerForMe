@@ -86,6 +86,29 @@ namespace EffectivePotential {
         alglib::spline2dinterpolant Mga2T;
         alglib::spline2dinterpolant swL;
         alglib::spline2dinterpolant swT;
+
+        const alglib::spline2dinterpolant& get(int idx) const {
+            switch (idx) {
+                case 0:  return Mh2;
+                case 1:  return MG2;
+                case 2:  return MA2;
+                case 3:  return MH2;
+                case 4:  return MHpm2;
+                case 5:  return MW2L;
+                case 6:  return MZ2L;
+                case 7:  return Mga2L;
+                case 8:  return MW2T;
+                case 9:  return MZ2T;
+                case 10: return Mga2T;
+                case 11: return swL;
+                case 12: return swT;
+                default: throw std::out_of_range("Invalid mass index");
+            }
+        }
+        // 非 const 版本，允许修改
+        alglib::spline2dinterpolant& get(int idx) {
+            return const_cast<alglib::spline2dinterpolant&>(const_cast<const MassSplines*>(this)->get(idx));
+        }
     };
   
     struct ConterTermParameters {
@@ -217,7 +240,7 @@ namespace EffectivePotential {
                     Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solver(M2matrix);
                     double mga2 = solver.eigenvalues()[0];
                     double mZ2 = solver.eigenvalues()[1];
-                    double sw = solver.eigenvectors()(0,0);
+                    double sw = std::abs(solver.eigenvectors()(0,0));
                     std::vector<double> mSquares = {mh2, mG2, mA2, mH2, mHpm2, mW2, mZ2, mga2, mW2, mZ2, mga2};
                     std::vector<double> mixing_angles = {sw, sw} ;
                     return std::make_pair(mSquares, mixing_angles);
@@ -234,7 +257,7 @@ namespace EffectivePotential {
                     Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solver(M2matrix);
                     double mga2 = solver.eigenvalues()[0];
                     double mZ2 = solver.eigenvalues()[1];
-                    double sw = solver.eigenvectors()(0,0);
+                    double sw = std::abs(solver.eigenvectors()(0,0));
                     std::vector<double> mSquares = {mh2, mG2, mA2, mH2, mHpm2, mW2, mZ2, mga2, mW2, mZ2, mga2};
                     std::vector<double> mixing_angles = {sw, sw} ;
                     return std::make_pair(mSquares, mixing_angles);
@@ -272,14 +295,14 @@ namespace EffectivePotential {
                     Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solverL(M2Lmatrix);
                     double Mga2L = solverL.eigenvalues()[0];
                     double MZ2L = solverL.eigenvalues()[1];
-                    double swL = solverL.eigenvectors()(0,0);
+                    double swL = std::abs(solverL.eigenvectors()(0,0));
                     Eigen::Matrix2d M2Tmatrix;
                     M2Tmatrix << MW32T, MW3B2T,
                                 MW3B2T, MB2T;
                     Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solverT(M2Tmatrix);
                     double Mga2T = solverT.eigenvalues()[0];
                     double MZ2T = solverT.eigenvalues()[1];
-                    double swT = solverT.eigenvectors()(0,0);
+                    double swT = std::abs(solverT.eigenvectors()(0,0));
                     std::vector<double> MSquares = {Mh2, MG2, MA2, MH2, MHpm2, MW2L, MZ2L, Mga2L, MW2T, MZ2T, Mga2T};
                     std::vector<double> mixing_angles = {swL, swT} ;
                     return std::make_pair(MSquares, mixing_angles);
@@ -598,6 +621,8 @@ namespace EffectivePotential {
             delta_lamm = - 2.0 * (selfenergy.PiA3(.0, MB2_vec, v0) + selfenergy.PiA4(.0, MB2_vec) + delta_mu2sq) / square(v0);
         }
 
+
+ 
         /**
          * Initialize mass splines by solving gap equations on a grid asynchronously.
          * Saves results to disk and loads them into spline interpolators.
@@ -659,7 +684,7 @@ namespace EffectivePotential {
                             
                             // Create a local SelfEnergy instance to call the solver
                             SelfEnergy selfenergy(this->lam2, this->lamL, this->mA, this->mH, this->mHpm);
-                            gapEqResult result = selfenergy.solve_gap_equations(phi, T, 1e-4, bosons_bare, bosons_init, 300);
+                            gapEqResult result = selfenergy.solve_gap_equations(phi, T, 1e-3, bosons_bare, bosons_init, 500); // 1% tolerance
 
                             size_t base_idx = idx * n_mass;
                             if (result.success) {
@@ -674,7 +699,7 @@ namespace EffectivePotential {
                                 }
                                 std::lock_guard<std::mutex> lock(bad_points_mutex);
                                 bad_points_list.emplace_back(phi, T, i, j);
-                                std::cerr << "\nWarning: phi=" << phi << ", T=" << T << ": " << result.message << std::endl;
+                                // std::cerr << "\nWarning: phi=" << phi << ", T=" << T << ": " << result.message << std::endl;
                             }
                         } catch (const std::exception& e) {
                             std::lock_guard<std::mutex> lock(bad_points_mutex);
@@ -685,7 +710,7 @@ namespace EffectivePotential {
                         }
 
                         int completed = ++completed_points;
-                        if (completed % 500 == 0 || completed == total_points) {
+                        if (completed % 1000 == 0 || completed == total_points) {
                             auto now = std::chrono::high_resolution_clock::now();
                             std::chrono::duration<double> elapsed = now - start_time;
                             double progress = (static_cast<double>(completed) / total_points) * 100.0;
@@ -770,12 +795,13 @@ namespace EffectivePotential {
             }
 
             create_mass_splines(xphi, xT, yM_flat, n_phi, n_T, n_mass);
-
+            //std::cout << "Mass splines has created." << std::endl;
         }
 
     private:
         MassSplines mass_splines_;
 
+        
         void load_mass_data(const std::string& path, 
                             std::vector<double>& xphi, std::vector<double>& xT,
                             std::vector<double>& yM_flat,
@@ -787,23 +813,61 @@ namespace EffectivePotential {
             
             yM_flat.resize(static_cast<size_t>(n_phi) * n_T * n_mass);
             
-            double phi, T;
+            std::string line;
             int count = 0;
+            int line_number = 0;
             
-            while (file >> phi) {
-                file >> T;
+            while (std::getline(file, line)) {
+                line_number++;
+                if (line.empty()) continue;
+
+                std::istringstream iss(line);
+                double phi, T;
+                
+                // Read phi and T
+                if (!(iss >> phi >> T)) {
+                    std::cerr << "Warning: Failed to parse phi/T at line " << line_number << std::endl;
+                    continue; // Skip malformed lines instead of breaking immediately, or break depending on strictness
+                }
+                
                 if (count >= n_phi * n_T) break;
                 
+                bool row_valid = true;
                 for (int k = 0; k < n_mass; ++k) {     
-                    file >> yM_flat[count * n_mass + k];
+                    std::string token;
+                    if (!(iss >> token)) {
+                        std::cerr << "Error: Missing data for mass component " << k << " at line " << line_number << std::endl;
+                        row_valid = false;
+                        break;
+                    }
+                    
+                    // Handle NaN and Inf explicitly
+                    if (token == "nan" || token == "NaN" || token == "-nan" || token == "-NaN") {
+                        yM_flat[count * n_mass + k] = std::nan("");
+                    } else if (token == "inf" || token == "Inf" || token == "+inf" || token == "+Inf") {
+                        yM_flat[count * n_mass + k] = std::numeric_limits<double>::infinity();
+                    } else if (token == "-inf" || token == "-Inf") {
+                        yM_flat[count * n_mass + k] = -std::numeric_limits<double>::infinity();
+                    } else {
+                        try {
+                            yM_flat[count * n_mass + k] = std::stod(token);
+                        } catch (const std::exception& e) {
+                            std::cerr << "Error: Invalid number format '" << token << "' at line " << line_number << ", col " << k << std::endl;
+                            row_valid = false;
+                            break;
+                        }
+                    }
                 }
-                count++;
+                
+                if (row_valid) {
+                    count++;
+                } else {
+                    throw std::runtime_error("Failed to parse data at line " + std::to_string(line_number));
+                }
             }
-            
-            if (count != n_phi * n_T) {
-                std::cerr << "Warning: Loaded " << count << " points, expected " << n_phi * n_T << std::endl;
-            }
+            file.close();
         }
+
 
         void save_mass_data(const std::string& path,
                             const std::vector<double>& xphi, const std::vector<double>& xT,
@@ -832,7 +896,6 @@ namespace EffectivePotential {
         void create_mass_splines(const std::vector<double>& xphi, const std::vector<double>& xT, 
                             const std::vector<double>& yM_flat, 
                             int n_phi, int n_T, int n_mass) {
-            MassSplines result;
             // Build bad point mask
             std::vector<std::vector<bool>> is_bad(n_phi, std::vector<bool>(n_T, false));
             std::string bad_points_path = "/home/dayun/data/bad_points_" + paramNumber + ".txt";
@@ -897,23 +960,34 @@ namespace EffectivePotential {
                         } else { // Fill bad points
                             // Along T direction (fixed i): take up to 10 points before and after j (max 20 valid)
                             std::vector<double> T_vals, mass_vals;
-                            int start_j = std::max(0, j - 10);
-                            int end_j = std::min(n_T, j + 11);
+                            int start_j = std::max(0, j - 50);
+                            int end_j = std::min(n_T, j + 51);
+                            //std::cout << "deal with bad point (i,j) = (" << i << ", " << j << ")" << std::endl;
                             for (int jj = start_j; jj < end_j; ++jj) {
                                 if (!is_bad[i][jj]) {
                                     T_vals.push_back(xT[jj]);
                                     mass_vals.push_back(yM_flat[(i * n_T + jj) * n_mass + k]);
                                 }
                             }
+                            double interpolated_val = std::nan("");
                             if (T_vals.size() >= 2) {
-                                f_flat[j * n_phi + i] = local_cubic_spline(T_vals, mass_vals, xT[j]);
+                                try {
+                                    interpolated_val = local_cubic_spline(T_vals, mass_vals, xT[j]);
+                                } catch (...) {
+                                    interpolated_val = std::nan("");
+                                }
+                            }
+                            
+                            if (std::isfinite(interpolated_val)) {
+                                f_flat[j * n_phi + i] = interpolated_val;
+                                //std::cout << "Interpolated bad point (i,j) = (" << i << ", " << j << ") to " << interpolated_val << std::endl;
                                 continue;
                             }
 
                             // Along phi direction (fixed j): take up to 10 points before and after i (max 20 valid)
                             std::vector<double> phi_vals, mass_vals2;
-                            int start_i = std::max(0, i - 10);
-                            int end_i = std::min(n_phi, i + 11);
+                            int start_i = std::max(0, i - 50);
+                            int end_i = std::min(n_phi, i + 51);
                             for (int ii = start_i; ii < end_i; ++ii) {
                                 if (!is_bad[ii][j]) {
                                     phi_vals.push_back(xphi[ii]);
@@ -921,7 +995,15 @@ namespace EffectivePotential {
                                 }
                             }
                             if (phi_vals.size() >= 2) {
-                                f_flat[j * n_phi + i] = local_cubic_spline(phi_vals, mass_vals2, xphi[i]);
+                                try {
+                                    interpolated_val = local_cubic_spline(phi_vals, mass_vals2, xphi[i]);
+                                } catch (...) {
+                                    interpolated_val = std::nan("");
+                                }
+                            }
+                            
+                            if (std::isfinite(interpolated_val)) {
+                                f_flat[j * n_phi + i] = interpolated_val;
                                 continue;
                             }
 
@@ -931,7 +1013,7 @@ namespace EffectivePotential {
                                 for (int dj = -1; dj <= 1 && !found; ++dj) {
                                     int ni = i + di, nj = j + dj;
                                     if (ni >= 0 && ni < n_phi && nj >= 0 && nj < n_T && !is_bad[ni][nj]) {
-                                        f_flat[j * n_phi + i] = f_flat[nj * n_phi + ni];
+                                        f_flat[j * n_phi + i] = yM_flat[(ni * n_T + nj) * n_mass + k];
                                         found = true;
                                     }
                                 }
@@ -942,30 +1024,46 @@ namespace EffectivePotential {
                 }
 
                  // 3.4 Convert f_flat to alglib::real_1d_array
+                // Sanitize data before passing to ALGLIB to prevent ap_error from NaN/Inf
+                for (auto& val : f_flat) {
+                    if (!std::isfinite(val)) {
+                        val = 0.0; // Replace NaN/Inf with 0.0 as a safe fallback for spline construction
+                    }
+                }
+
                 alglib::real_1d_array f_alglib;
                 f_alglib.setcontent(n_phi * n_T, f_flat.data());
 
                 // 3.5 Build bicubic spline (vector version, D=1)
                 alglib::spline2dinterpolant spline2d;
-                alglib::spline2dbuildbicubicv(xphi_alglib, n_phi, xT_alglib, n_T, f_alglib, 1, spline2d);
-
-                // Assign
-                switch (k) {
-                    case 0:  result.Mh2   = spline2d; break;
-                    case 1:  result.MG2   = spline2d; break;
-                    case 2:  result.MA2   = spline2d; break;
-                    case 3:  result.MH2   = spline2d; break;
-                    case 4:  result.MHpm2 = spline2d; break;
-                    case 5:  result.MW2L  = spline2d; break;
-                    case 6:  result.MZ2L  = spline2d; break;
-                    case 7:  result.Mga2L = spline2d; break;
-                    case 8:  result.MW2T  = spline2d; break;
-                    case 9:  result.MZ2T  = spline2d; break;
-                    case 10: result.Mga2T = spline2d; break;
-                    case 11: result.swL   = spline2d; break;
-                    case 12: result.swT   = spline2d; break;
-                    default: std::cerr << "Error: unexpected mass index " << k << std::endl;
+                try {
+                    alglib::spline2dbuildbicubicv(xphi_alglib, n_phi, xT_alglib, n_T, f_alglib, 1, spline2d);
+                } catch (const alglib::ap_error& e) {
+                    std::cerr << "ALGLIB Error building spline for mass index " << k << ": " << e.msg << std::endl;
+                    // Initialize with a dummy spline or rethrow depending on desired behavior
+                    // Here we initialize with zeros to allow program continuation, but this indicates bad data
+                    alglib::real_1d_array zero_f;
+                    zero_f.setlength(n_phi * n_T);
+                    alglib::spline2dbuildbicubicv(xphi_alglib, n_phi, xT_alglib, n_T, zero_f, 1, spline2d);
                 }
+                mass_splines_.get(k) = spline2d;
+                // Assign
+                // switch (k) {
+                //     case 0:  mass_splines_.Mh2   = spline2d; break;
+                //     case 1:  mass_splines_.MG2   = spline2d; break;
+                //     case 2:  mass_splines_.MA2   = spline2d; break;
+                //     case 3:  mass_splines_.MH2   = spline2d; break;
+                //     case 4:  mass_splines_.MHpm2 = spline2d; break;
+                //     case 5:  mass_splines_.MW2L  = spline2d; break;
+                //     case 6:  mass_splines_.MZ2L  = spline2d; break;
+                //     case 7:  mass_splines_.Mga2L = spline2d; break;
+                //     case 8:  mass_splines_.MW2T  = spline2d; break;
+                //     case 9:  mass_splines_.MZ2T  = spline2d; break;
+                //     case 10: mass_splines_.Mga2T = spline2d; break;
+                //     case 11: mass_splines_.swL   = spline2d; break;
+                //     case 12: mass_splines_.swT   = spline2d; break;
+                //     default: std::cerr << "Error: unexpected mass index " << k << std::endl;
+                // }
             }
         }
 

@@ -105,9 +105,15 @@ double calculate_v_over_T(double lam2, double lamL, double mA, double mH, double
     PhaseTracer::PhaseFinder pf(idm);
     pf.set_upper_bounds({400.0});
     pf.set_lower_bounds({-400.0});
+    pf.set_guess_points({Eigen::VectorXd::Constant(1, 246.22)});
     pf.set_t_high(300.0);
     pf.set_v(246.22);
     
+    // auto mass_splines = idm.get_mass_splines();
+    // std::cout << "Test..." << std::endl;
+    // std::cout << alglib::spline2dcalc(mass_splines.Mh2, 246.22, 0.0) << std::endl;
+    // std::cout << "Done!" << std::endl;
+
     try {
         pf.find_phases();
     } catch (const std::exception& e) {
@@ -156,9 +162,67 @@ double calculate_v_over_T(double lam2, double lamL, double mA, double mH, double
     return std::max(nuc_vev1, nuc_vev2) / nuc_temp;
 }
 
+
+void test(double lam2, double lamL, double mA, double mH, double mHpm) {
+    EffectivePotential::IDM idm;
+    idm.init_params(lam2, lamL, mA, mH, mHpm, "1");
+    idm.calc_conterterms();
+    double phi = 0.000000; 
+    double T =  57.190635;  
+    EffectivePotential::SelfEnergy self_energy(lam2, lamL, mA, mH, mHpm);
+    auto bosons_init = idm.boson_massSq(Eigen::VectorXd::Constant(1, phi), T, EffectivePotential::ThermalMassScheme::Tree); // Initial guess
+    auto bosons_bare = idm.boson_massSq(Eigen::VectorXd::Constant(1, phi), T, EffectivePotential::ThermalMassScheme::CTterm);
+    EffectivePotential::gapEqResult result = self_energy.solve_gap_equations(phi, T, 1e-3, bosons_bare, bosons_init, 300);
+    std::cout << "messages:" << result.message << std::endl;
+    std::cout << "loss:" << result.loss << std::endl;
+}
+
+
+void plot_data(double lam2, double lamL, double mA, double mH, double mHpm) {
+    EffectivePotential::IDM idm;
+    idm.init_params(lam2, lamL, mA, mH, mHpm, "1");
+    idm.calc_conterterms();
+    idm.init_mass_splines();
+
+    double phimin = 0.0, phimax = 400.0;
+    double Tmin = 0.0, Tmax = 300.0;
+    int n_phi = 800, n_T = 600;
+
+    const int n_mass = 13; // mh2, mG2, mA2, mH2, mHpm2, mW2L, mZ2L, mga2L, mW2T, mZ2T, mga2T, swL, swT
+
+    // Generate grid coordinates
+    std::vector<double> xphi(n_phi);
+    std::vector<double> xT(n_T);
+    for (int i = 0; i < n_phi; ++i) xphi[i] = phimin + i * (phimax - phimin) / (n_phi - 1);
+    for (int j = 0; j < n_T; ++j) xT[j] = Tmin + j * (Tmax - Tmin) / (n_T - 1);
+
+
+    // 构建样条
+    EffectivePotential::MassSplines mass_splines = idm.get_mass_splines();
+    
+    for (int k = 0; k < n_mass; ++k) {
+        std::string interp_file = "/home/dayun/data/interp_" + std::to_string(k) + ".txt";
+        std::ofstream fout(interp_file);
+        if (!fout) {
+            std::cerr << "Cannot write to " << interp_file << std::endl;
+            continue;
+        }
+        fout << "# phi T interp\n";
+        for (int i = 0; i < n_phi; ++i) {
+            for (int j = 0; j < n_T; ++j) {
+                double interp = alglib::spline2dcalc(mass_splines.get(k), xphi[i], xT[j]);
+                fout << xphi[i] << " " << xT[j] << " " << interp << "\n";
+            }
+        }
+        std::cout << "Interpolation values written to " << interp_file << std::endl;
+        fout.close();
+    }
+}
+
+
+
 int main(int argc, char *argv[]) { 
     // Force fatal logging to avoid cluttering stdout which is parsed by Python
-    LOGGER(debug);
 
     double v_over_T;
 
@@ -184,14 +248,14 @@ int main(int argc, char *argv[]) {
         std::cerr << "[Info] No command line arguments provided. Using default values." << std::endl;
     }
 
-    v_over_T = calculate_v_over_T(lam2, lamL, mA, mH, mHpm, paramNumber, resum);
+    // v_over_T = calculate_v_over_T(lam2, lamL, mA, mH, mHpm, paramNumber, resum);
 
-    // Output only the result for Python to parse
-    if (std::isnan(v_over_T)) {
-        std::cout << "nan" << std::endl;
-    } else {
-        std::cout << v_over_T << std::endl;
-    }
+    // if (std::isnan(v_over_T)) {
+    //     std::cout << "nan" << std::endl;
+    // } else {
+    //     std::cout << v_over_T << std::endl;
+    // }
+    plot_data(lam2, lamL, mA, mH, mHpm);
 
     return 0;
 }
