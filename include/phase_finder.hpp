@@ -25,7 +25,7 @@
 #include <eigen3/Eigen/Core>
 #include "nlopt.hpp"
 
-#include "potential.hpp"
+#include "effectivepotential/potential.hpp"
 #include "overload.hpp"
 #include "property.hpp"
 

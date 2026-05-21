@@ -1,6 +1,7 @@
 #include "IDM.hpp"
 #include "phase_finder.hpp"
 #include "transition_finder.hpp"
+#include "gravwave_calculator.hpp"
 #include <iostream>
 #include <fstream>
 #include <sstream>
@@ -62,47 +63,22 @@ bool parse_command_line_args(int argc, char *argv[], double& lam2, double& lamL,
     }
 }
 
-double calculate_v_over_T(double lam2, double lamL, double mA, double mH, double mHpm, const std::string& paramNumber, const std::string& resum) {
-    // Force fatal logging to avoid cluttering stdout which is parsed by Python
-    LOGGER(fatal);
+void phase_parameters(PhaseTracer::TransitionFinder &tf, double &alpha, double &beta_H) {
+    // create grav wave calculator object
+    PhaseTracer::GravWaveCalculator gc(tf);
 
-    EffectivePotential::IDM idm;
-    // Initialize the IDM parameters
-    idm.init_params(lam2, lamL, mA, mH, mHpm, paramNumber);
+    // find all spectrums
+    gc.set_dof(110.75);
+    auto spectrums = gc.calc_spectrums();
+    alpha = spectrums[0].alpha;
+    beta_H = spectrums[0].beta_H;
+    std::cout << gc;
+}
 
-    // Check perturbativity and vacuum stability
-    if (!idm.check_perturbativity()) {
-        std::cerr << "DEBUG: Perturbativity check failed for mA=" << mA << " mH=" << mH << std::endl;
-        return std::nan("");
-    }
-    
-    if (!idm.check_vacuum_stability()) {
-        std::cerr << "DEBUG: Vacuum stability check failed for mA=" << mA << " mH=" << mH << std::endl;
-        return std::nan("");
-    }
-
-    // Calculate the conterterms
-    idm.calc_conterterms();
-
-    // Set resummation scheme
-    if (resum == "None") {
-        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::None);
-    } else if (resum == "AE") {
-        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::ArnoldEspinosa);
-    } else if (resum == "Parwani") {
-        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::Parwani);
-    } else if (resum == "DJ") {
-        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::DolanJackiw);
-    } else if (resum == "PD") {
-        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::PartialDressing);
-        idm.init_mass_splines();
-    } else {
-        std::cerr << "Warning: Invalid resummation scheme '" << resum << "'. Defaulting to no resummation." << std::endl;
-        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::None);
-    }
+double calculate_v_over_T(EffectivePotential::Potential &model) {
 
     // Make PhaseFinder object and find the phases
-    PhaseTracer::PhaseFinder pf(idm);
+    PhaseTracer::PhaseFinder pf(model);
     pf.set_upper_bounds({400.0});
     pf.set_lower_bounds({-400.0});
     pf.set_guess_points({Eigen::VectorXd::Constant(1, 246.22)});
@@ -114,38 +90,30 @@ double calculate_v_over_T(double lam2, double lamL, double mA, double mH, double
     // std::cout << alglib::spline2dcalc(mass_splines.Mh2, 246.22, 0.0) << std::endl;
     // std::cout << "Done!" << std::endl;
 
-    try {
-        pf.find_phases();
-    } catch (const std::exception& e) {
-        std::cerr << "DEBUG: PhaseFinder exception for mA=" << mA << " mH=" << mH << ": " << e.what() << std::endl;
-        return std::nan("");
-    }
-    
+    pf.find_phases();
+
     // create action calculator object
-    PhaseTracer::ActionCalculator ac(idm);
+    PhaseTracer::ActionCalculator ac(model);
 
     //createtransitionfinderobject
     PhaseTracer::TransitionFinder tf(pf, ac);
 
-    
-
     //findtransitions
-    try {
-        tf.find_transitions();
-    } catch (const std::exception& e) {
-        std::cerr << "DEBUG: TransitionFinder exception for mA=" << mA << " mH=" << mH << ": " << e.what() << std::endl;
-        return std::nan("");
-    }
+    tf.find_transitions();
 
     // extract transitions
     auto t = tf.get_transitions();
+    std::cout <<tf;
+    double alpha, beta_H;
+    phase_parameters(tf, alpha, beta_H);
+
+
     if (t.size() < 1) {
         // std::cerr << "DEBUG: No transitions found for mA=" << mA << " mH=" << mH << std::endl; 
         return std::nan("");
     }
 
     if (t[0].true_vacuum_TN.size() == 0) {
-        std::cerr << "DEBUG: Transition data invalid (empty vacuum vectors) for mA=" << mA << " mH=" << mH << std::endl;
         return std::nan("");
     }
 
@@ -155,7 +123,6 @@ double calculate_v_over_T(double lam2, double lamL, double mA, double mH, double
     
     // Avoid division by zero
     if (nuc_temp <= 1e-6) {
-        std::cerr << "DEBUG: Nucleation temperature too low for mA=" << mA << " mH=" << mH << std::endl;
         return std::nan("");
     }
 
@@ -163,15 +130,13 @@ double calculate_v_over_T(double lam2, double lamL, double mA, double mH, double
 }
 
 
-void test(double lam2, double lamL, double mA, double mH, double mHpm) {
-    EffectivePotential::IDM idm;
-    idm.init_params(lam2, lamL, mA, mH, mHpm, "1");
-    idm.calc_conterterms();
+void test(EffectivePotential::IDM &model) {
     double phi = 0.000000; 
     double T =  57.190635;  
-    EffectivePotential::SelfEnergy self_energy(lam2, lamL, mA, mH, mHpm);
-    auto bosons_init = idm.boson_massSq(Eigen::VectorXd::Constant(1, phi), T, EffectivePotential::ThermalMassScheme::Tree); // Initial guess
-    auto bosons_bare = idm.boson_massSq(Eigen::VectorXd::Constant(1, phi), T, EffectivePotential::ThermalMassScheme::CTterm);
+    auto params = model.get_params();
+    EffectivePotential::SelfEnergy self_energy(params.lam2, params.lamL, params.mA, params.mH, params.mHpm);
+    auto bosons_init = model.boson_massSq(Eigen::VectorXd::Constant(1, phi), T, EffectivePotential::ThermalMassScheme::Tree); // Initial guess
+    auto bosons_bare = model.boson_massSq(Eigen::VectorXd::Constant(1, phi), T, EffectivePotential::ThermalMassScheme::CTterm);
     EffectivePotential::gapEqResult result = self_energy.solve_gap_equations(phi, T, 1e-3, bosons_bare, bosons_init, 300);
     std::cout << "messages:" << result.message << std::endl;
     std::cout << "loss:" << result.loss << std::endl;
@@ -220,7 +185,6 @@ void plot_data(double lam2, double lamL, double mA, double mH, double mHpm) {
 }
 
 
-
 int main(int argc, char *argv[]) { 
     // Force fatal logging to avoid cluttering stdout which is parsed by Python
 
@@ -248,14 +212,53 @@ int main(int argc, char *argv[]) {
         std::cerr << "[Info] No command line arguments provided. Using default values." << std::endl;
     }
 
-    // v_over_T = calculate_v_over_T(lam2, lamL, mA, mH, mHpm, paramNumber, resum);
+    LOGGER(fatal);
+
+    EffectivePotential::IDM idm;
+    // Initialize the IDM parameters
+    idm.init_params(lam2, lamL, mA, mH, mHpm, paramNumber);
+
+    // Check perturbativity and vacuum stability
+    if (!idm.check_perturbativity()) {
+        std::cerr << "DEBUG: Perturbativity check failed for mA=" << mA << " mH=" << mH << std::endl;
+        std::cout << std::nan("")<< std::endl;
+        return 1;
+    }
+    
+    if (!idm.check_vacuum_stability()) {
+        std::cerr << "DEBUG: Vacuum stability check failed for mA=" << mA << " mH=" << mH << std::endl;
+        std::cout << std::nan("")<< std::endl;
+        return 1;
+    }
+
+    // Calculate the conterterms
+    idm.calc_conterterms();
+
+    // Set resummation scheme
+    if (resum == "None") {
+        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::None);
+    } else if (resum == "AE") {
+        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::ArnoldEspinosa);
+    } else if (resum == "Parwani") {
+        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::Parwani);
+    } else if (resum == "DJ") {
+        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::DolanJackiw);
+    } else if (resum == "PD") {
+        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::PartialDressing);
+        idm.init_mass_splines();
+    } else {
+        std::cerr << "Warning: Invalid resummation scheme '" << resum << "'. Defaulting to no resummation." << std::endl;
+        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::None);
+    }
+
+    v_over_T = calculate_v_over_T(idm);
 
     // if (std::isnan(v_over_T)) {
     //     std::cout << "nan" << std::endl;
     // } else {
     //     std::cout << v_over_T << std::endl;
     // }
-    plot_data(lam2, lamL, mA, mH, mHpm);
+    //plot_data(lam2, lamL, mA, mH, mHpm);
 
     return 0;
 }
