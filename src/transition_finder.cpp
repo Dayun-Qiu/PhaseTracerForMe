@@ -19,6 +19,7 @@
 
 #include "logger.hpp"
 #include "transition_finder.hpp"
+#include "transition_graph_util.hpp"
 
 #include <boost/math/tools/roots.hpp>
 

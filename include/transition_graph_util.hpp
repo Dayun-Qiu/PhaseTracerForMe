@@ -21,12 +21,10 @@
 #include <assert.h>
 #include <stdlib.h>
 
-#include <limits>
-#include <string>
 #include <vector>
 
-#include "transition_finder.hpp"
 #include "phase_finder.hpp"
+#include "transition_graph_types.hpp"
 
 // Forward declarations.
 namespace PhaseTracer {
@@ -83,239 +81,6 @@ struct PhaseStructureData {
   }
 };
 
-struct Edge {
-  int fromPhase;
-  int toPhase;
-  double temperature;
-  int transition;
-
-  Edge(int fromPhase, int toPhase, double temperature, int transition) {
-    this->fromPhase = fromPhase;
-    this->toPhase = toPhase;
-    this->temperature = temperature;
-    this->transition = transition;
-  }
-
-  friend std::ostream &operator<<(std::ostream &o, const Edge &e) {
-    o << e.fromPhase << " --(" << e.transition << ", T=" << e.temperature << ")--> " << e.toPhase;
-    return o;
-  }
-};
-
-struct TransitionEdge {
-  int transitionIndex;
-  bool subcritical;
-  double temperature;
-
-  TransitionEdge(int transitionIndex, bool subcritical, double temperature) {
-    this->transitionIndex = transitionIndex;
-    this->subcritical = subcritical;
-    this->temperature = temperature;
-  }
-
-  friend std::ostream &operator<<(std::ostream &o, const TransitionEdge &te) {
-    o << "{i: " << te.transitionIndex << ", sc: " << te.subcritical << ", T: " << te.temperature << "}";
-
-    return o;
-  }
-};
-
-struct Vertex {
-  int phase;
-  std::vector<Edge> edges;
-
-  Vertex(int phase) {
-    this->phase = phase;
-    this->edges = {};
-  }
-
-  void addEdge(Edge &edge) {
-    // LOG(debug) << "Adding edge " << edge << " to vertex " << phase;
-    assert(edge.fromPhase == phase && "Attempted to add an edge to a vertex that is not the start point of the edge!");
-    edges.push_back(edge);
-  }
-
-  friend std::ostream &operator<<(std::ostream &o, const Vertex &v) {
-    o << "Vertex<" << v.phase << "> {";
-
-    if (v.edges.size() == 0) {
-      o << "}";
-      return o;
-    }
-
-    // Can't do size-1 if size=0 since it's stored in a size_t type var, which cannot store negative numbers.
-    // That's why we have to handle the size = 0 case earlier.
-    for (int i = 0; i < v.edges.size() - 1; ++i) {
-      o << v.edges[i] << ", ";
-    }
-
-    if (v.edges.size() > 0) {
-      o << v.edges.back();
-    }
-
-    o << "}";
-
-    return o;
-  }
-};
-
-struct Path {
-  std::vector<int> phases;
-  // This will be in descending order, with one less element than phases. temperatures[i] will be the critical
-  // temperature between phases[i] and phases[i+1].
-  // std::vector<double> temperatures;
-  // Similar to temperatures, this will be the transition indices in descending order of the corresponding
-  // temperatures.
-  std::vector<TransitionEdge> transitions;
-
-  Path(int startPhase) {
-    phases.push_back(startPhase);
-  }
-
-  // Copy constructor.
-  /*Path(const Path& otherPath)
-  {
-          // These vectors will be copied to new vectors, which is good since we don't want changes to otherPath's
-          // vectors to change this path's vectors.
-          phases = otherPath.phases;
-          temperatures = otherPath.temperatures;
-  }*/
-
-  void extend(const Edge &edge, bool subcritical, double temperature) {
-    assert(edge.fromPhase == phases.back() && "Attempted to extend the path using an edge that doesn't begin at the end of this path!");
-
-    phases.push_back(edge.toPhase);
-    // temperatures.push_back(edge.temperature);
-    // transitions.push_back(edge.transition);
-    transitions.push_back({edge.transition, subcritical, temperature});
-  }
-
-  // bool canUndergoTransition(const Edge& edge)
-  bool canUndergoTransition(const std::vector<Vertex> &vertices, int vertexIndex, int edgeIndex) {
-    // TODO: need to make sure this function isn't used for checking higher temperature subcritical transitions from
-    // the new toPhase. If it is, this condition needs to be changed.
-    // return edge.temperature <= temperatures.back();
-    // return edge.temperature <= transitions.back().temperature;
-
-    // The phase can undergo this transition if either the transition temperature is below this path's current
-    // temperature, or if there does not exist the reverse transition below it's temperature. Additionally, it should
-    // not return the system to a phase already existing in this path but at a lower temperature, as this new
-    // transition at a higher temperature .
-
-    assert(vertexIndex == phases.back() && "Checked whether a transition was possible from a phase that isn't the end of this path!");
-
-    const Vertex &vertex = vertices[vertexIndex];
-    const Edge &transition = vertex.edges[edgeIndex];
-
-    int fromPhase = vertex.edges[edgeIndex].fromPhase;
-    int toPhase = vertex.edges[edgeIndex].toPhase;
-    double currentTemperature = transitions.back().temperature;
-
-    // If this transition occurs at a lower temperature than the path's current temperature, then the transition
-    // can occur.
-    if (transition.temperature <= currentTemperature) {
-      return true;
-    }
-
-    // If this transition occurs at a higher temperature than the path's current temperature, then there are
-    // conditions that must be satisfied for the transition to be possible.
-
-    // Check if there is a reverse transition between the current temperature and the transition temperature. If
-    // there is, this transition cannot occur.
-    const Vertex &toVertex = vertices[transition.toPhase];
-
-    for (int i = 0; i < toVertex.edges.size(); ++i) {
-      if (toVertex.edges[i].temperature < currentTemperature) {
-        continue;
-      }
-
-      if (toVertex.edges[i].temperature > transition.temperature) {
-        break;
-      }
-
-      if (toVertex.edges[i].toPhase == vertex.phase) {
-        return false;
-      }
-    }
-
-    // Now we need to check if this transition returns the path to a phase already existing in the path but at a
-    // lower temperature. If we return to a phase already existing in the path, but return to it at a higher
-    // temperature, then we should discard this transition. We have already handled that phase at the higher
-    // temperature, and doing so again would result in cycles.
-
-    // Since the path is in order of monotonically decreasing temperature, if we find the phase in the path at all
-    // then we know it must be at a higher temperature.
-    for (int i = 0; i < phases.size(); ++i) {
-      if (phases[i] == toPhase) {
-        return false;
-      }
-    }
-
-    // Otherwise, this transition can be added.
-    return true;
-  }
-
-  // Returns the current temperature of the path, given by the temperature at which the last transition occurred.
-  // This is used for determining the temperature at which a newly added transition will occur. For instance, if the
-  // newly added transition has a critical temperature above the path's current temperature, then it will be treated as
-  // a subcritical transition with a transition temperature equal to the path's current temperature.
-  double getCurrentTemperature() {
-    return transitions.size() > 0 ? transitions.back().temperature : std::numeric_limits<double>::max();
-  }
-
-  friend std::ostream &operator<<(std::ostream &o, const Path &p) {
-    if (p.phases.size() == 0) {
-      o << "<empty path>";
-      return o;
-    }
-
-    o << p.phases[0];
-
-    for (int i = 1; i < p.phases.size(); ++i) {
-      // o << " --(" << p.transitions[i-1].tr << ", T=" << p.temperatures[i-1] << ")--> " << p.phases[i];
-      o << " --" << p.transitions[i - 1] << "--> " << p.phases[i];
-    }
-
-    return o;
-  }
-
-  std::string getStringForFileOutput() {
-    std::string transitionIndices = "";
-
-    if (transitions.size() == 0) {
-      return transitionIndices;
-    }
-
-    // transitionIndices += std::to_string(transitions[0]);
-    transitionIndices += std::to_string(transitions[0].transitionIndex);
-
-    for (int i = 1; i < transitions.size(); ++i) {
-      // transitionIndices += " " + std::to_string(transitions[i]);
-      transitionIndices += " " + std::to_string(transitions[i].transitionIndex);
-    }
-
-    return transitionIndices;
-  }
-};
-
-struct FrontierNode {
-  int vertexIndex;
-  int edgeIndex;
-  int pathIndex;
-
-  FrontierNode(int vertexIndex, int edgeIndex, int pathIndex) {
-    this->vertexIndex = vertexIndex;
-    this->edgeIndex = edgeIndex;
-    this->pathIndex = pathIndex;
-  }
-
-  friend std::ostream &operator<<(std::ostream &o, const FrontierNode &fn) {
-    o << "{v: " << fn.vertexIndex << ", e: " << fn.edgeIndex << ", p: " << fn.pathIndex << "}";
-
-    return o;
-  }
-};
-
 /**
  * Constructs a new phase from the input phase, with the position vector X being reflected about the axes defined in
  * reflectionIndices. For instance, if reflectionIndices = {0, 2} and phase.X[i] = (x0, x1, x2, x3), then
@@ -360,21 +125,63 @@ void extractExplicitSymmetricPhasesAndTransitions(
     std::vector<PhaseTracer::Phase> &out_symmetrisedPhases,
     std::vector<PhaseTracer::Transition> &out_symmetrisedTransitions);
 
-PhaseStructureData extractPhaseStructureData(const std::vector<PhaseTracer::Phase> &phases,
-                                             const std::vector<PhaseTracer::Transition> &transitions, const std::vector<Eigen::VectorXd> &expectedLowTPhases,
-                                             double Tmax, bool knownHighTPhase);
+/** Extracts the phase structure data from the given phases. */
+PhaseStructureData extractPhaseStructureData(const std::vector<PhaseTracer::Phase> &phases, double T_low, double T_high);
 
-std::vector<Path> getTransitionPathsFromHighTPhase(const std::vector<Vertex> &vertices, int highTPhaseIndex);
-
-std::vector<Path> getTransitionPaths(const std::vector<PhaseTracer::Phase> &phases,
-                                     const std::vector<PhaseTracer::Transition> &transitions, const PhaseStructureData &phaseStructureData);
+/** Extracts the phase structure data from the given phases. */
+PhaseStructureData extractPhaseStructureData(const std::vector<PhaseTracer::Phase> &phases);
 
 /**
- * knownHighTPhase=true means we know the global minimum at T=Tmax is the phase the Universe is in at T=Tmax.
- * knownHighTPhase=false means we don't know which of the phases at T=Tmax the Universe is in at T=Tmax.
- * This boolean variable is equivalent to whether we have sampled the potential at high enough temperatures.
+ * Constructs a graph representation of the transitions between phases.
+ *
+ * @param phases - The phases to include in the graph.
+ * @param transitions - The transitions between phases.
+ * @param vertices - The vertices of the graph (to be populated).
+ * @param T_low - The minimum temperature to consider.
+ * @param T_high - The maximum temperature to consider.
+ * @param verbose - Whether to print verbose output.
  */
-std::vector<Path> getPhaseHistory(const PhaseTracer::TransitionFinder &tf, bool knownHighTPhase);
+void constructTransitionGraph(
+    const std::vector<PhaseTracer::Phase> &phases,
+    const std::vector<PhaseTracer::Transition> &transitions,
+    std::vector<Vertex> &vertices,
+    double T_low,
+    double T_high,
+    bool verbose = false);
+
+/**
+ * Constructs a graph representation of the transitions between phases.
+ *
+ * @param phases - The phases to include in the graph.
+ * @param transitions - The transitions between phases.
+ * @param vertices - The vertices of the graph (to be populated).
+ * @param verbose - Whether to print verbose output.
+ */
+void constructTransitionGraph(
+    const std::vector<PhaseTracer::Phase> &phases,
+    const std::vector<PhaseTracer::Transition> &transitions,
+    std::vector<Vertex> &vertices,
+    bool verbose = false);
+
+/**
+ * Finds all possible paths through the transition graph.
+ *
+ * @param vertices - The vertices of the graph.
+ * @param phaseStructureData - The phase structure data.
+ * @param paths - The paths through the graph (to be populated).
+ * @param verbose - Whether to print verbose output.
+ */
+void findAllPaths(const std::vector<Vertex> &vertices, const PhaseStructureData &phaseStructureData,
+                  std::vector<Path> &paths, bool verbose = false);
+
+/**
+ * Extracts the phase history from the transition finder.
+ *
+ * @param tf - The transition finder.
+ * @param known_high_t_phase - Whether the high temperature phase is known.
+ * @return The phase history paths.
+ */
+std::vector<Path> getPhaseHistory(const PhaseTracer::TransitionFinder &tf, bool known_high_t_phase = false);
 
 } // namespace TransitionGraph
 

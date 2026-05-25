@@ -102,6 +102,7 @@ phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
 
     //createtransitionfinderobject
     PhaseTracer::TransitionFinder tf(pf, ac);
+    //tf.set_check_subcritical_transitions(true);
 
     //findtransitions
     tf.find_transitions();
@@ -267,12 +268,12 @@ int main(int argc, char *argv[]) {
         idm.set_resummation_scheme(EffectivePotential::ResummationScheme::None);
     }
 
-    auto v_over_T = calculate_phasetransition(idm);
+    auto result = calculate_phasetransition(idm);
 
-    if (std::isnan(v_over_T.voT)) {
+    if (std::isnan(result.voT)) {
         std::cout << "nan" << " " << "nan" << " " << "nan" << std::endl;
     } else {
-        std::cout << v_over_T.voT << " " << v_over_T.alpha << " " << v_over_T.beta_H << std::endl;
+        std::cout << result.voT << " " << result.alpha << " " << result.beta_H << std::endl;
     }
     //plot_data(lam2, lamL, mA, mH, mHpm);
 

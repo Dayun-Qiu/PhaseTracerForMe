@@ -18,9 +18,7 @@
 #ifndef PHASETRACER_TRANSITION_FINDER_HPP_
 #define PHASETRACER_TRANSITION_FINDER_HPP_
 
-#include <algorithm>
 #include <ostream>
-#include <fstream>
 #include <string>
 #include <vector>
 
@@ -29,14 +27,9 @@
 
 #include "phase_finder.hpp"
 #include "overload.hpp"
-#include "potential.hpp"
 #include "action_calculator.hpp"
-#include "transition_graph_util.hpp"
 #include "polynomial_fitter.hpp"
-
-namespace TransitionGraph {
-struct Path;
-}
+#include "transition_graph_types.hpp"
 
 namespace PhaseTracer {
 

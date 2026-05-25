@@ -4,12 +4,9 @@
 #include "phase_finder.hpp"
 #include "logger.hpp"
 #include "phase_plotter.hpp"
-#include "potential_plotter.hpp"
-#include "potential_line_plotter.hpp"
 #include "transition_graph_util.hpp"
 
 #include <iostream>
-#include <iomanip>
 #include <eigen3/Eigen/Eigenvalues>
 #include <sstream>
 #include <vector>
@@ -17,7 +14,6 @@
 #include <fstream>
 #include <limits>
 #include <assert.h>
-#include "boost/filesystem.hpp"
 
 // Based on https://stackoverflow.com/questions/236129/how-do-i-iterate-over-the-words-of-a-string
 template <typename DataType>

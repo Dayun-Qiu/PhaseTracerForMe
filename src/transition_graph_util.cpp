@@ -18,6 +18,7 @@
 #include <iostream>
 
 #include "logger.hpp"
+#include "transition_finder.hpp"
 #include "transition_graph_util.hpp"
 
 namespace TransitionGraph {
