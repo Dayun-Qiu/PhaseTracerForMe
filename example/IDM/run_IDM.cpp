@@ -12,6 +12,12 @@
 #include <map>
 
 
+struct phase_params {
+    double voT;
+    double alpha;
+    double beta_H; 
+};
+
 bool parse_command_line_args(int argc, char *argv[], double& lam2, double& lamL, double& mA, double& mH, double& mHpm, std::string& paramNumber, std::string& Resum) {
 
     std::map<std::string, std::string> args_map;
@@ -72,10 +78,10 @@ void phase_parameters(PhaseTracer::TransitionFinder &tf, double &alpha, double &
     auto spectrums = gc.calc_spectrums();
     alpha = spectrums[0].alpha;
     beta_H = spectrums[0].beta_H;
-    std::cout << gc;
+    //std::cout << gc;
 }
 
-double calculate_v_over_T(EffectivePotential::Potential &model) {
+phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
 
     // Make PhaseFinder object and find the phases
     PhaseTracer::PhaseFinder pf(model);
@@ -103,18 +109,26 @@ double calculate_v_over_T(EffectivePotential::Potential &model) {
 
     // extract transitions
     auto t = tf.get_transitions();
-    std::cout <<tf;
+    //std::cout <<tf;
     double alpha, beta_H;
     phase_parameters(tf, alpha, beta_H);
+
+    phase_params result;
 
 
     if (t.size() < 1) {
         // std::cerr << "DEBUG: No transitions found for mA=" << mA << " mH=" << mH << std::endl; 
-        return std::nan("");
+        result.voT = std::nan("");
+        result.beta_H = std::nan("");
+        result.alpha = std::nan("");
+        return result;
     }
 
     if (t[0].true_vacuum_TN.size() == 0) {
-        return std::nan("");
+        result.voT = std::nan("");
+        result.beta_H = std::nan("");
+        result.alpha = std::nan("");
+        return result;
     }
 
     double nuc_temp = t[0].TN;
@@ -123,10 +137,16 @@ double calculate_v_over_T(EffectivePotential::Potential &model) {
     
     // Avoid division by zero
     if (nuc_temp <= 1e-6) {
-        return std::nan("");
+        result.voT = std::nan("");
+        result.beta_H = std::nan("");
+        result.alpha = std::nan("");
+        return result;
     }
 
-    return std::max(nuc_vev1, nuc_vev2) / nuc_temp;
+    result.voT = std::max(nuc_vev1, nuc_vev2) / nuc_temp;
+    result.beta_H = beta_H;
+    result.alpha = alpha;
+    return result;
 }
 
 
@@ -186,9 +206,6 @@ void plot_data(double lam2, double lamL, double mA, double mH, double mHpm) {
 
 
 int main(int argc, char *argv[]) { 
-    // Force fatal logging to avoid cluttering stdout which is parsed by Python
-
-    double v_over_T;
 
     // Set default values for parameters
     double lam2 = 0.2;
@@ -251,13 +268,13 @@ int main(int argc, char *argv[]) {
         idm.set_resummation_scheme(EffectivePotential::ResummationScheme::None);
     }
 
-    v_over_T = calculate_v_over_T(idm);
+    auto v_over_T = calculate_phasetransition(idm);
 
-    // if (std::isnan(v_over_T)) {
-    //     std::cout << "nan" << std::endl;
-    // } else {
-    //     std::cout << v_over_T << std::endl;
-    // }
+    if (std::isnan(v_over_T.voT)) {
+        std::cout << "nan" << " " << "nan" << " " << "nan" << std::endl;
+    } else {
+        std::cout << v_over_T.voT << " " << v_over_T.alpha << " " << v_over_T.beta_H << std::endl;
+    }
     //plot_data(lam2, lamL, mA, mH, mHpm);
 
     return 0;

@@ -49,18 +49,17 @@ def run_single_simulation(args):
             return np.nan
             
         output_str = lines[-1]
-        
-        if not output_str:
-            return np.nan 
+         
         try:
-            v_over_T = float(output_str)
-        except ValueError:
+            parts = output_str.split()
+            v_over_T = float(parts[0])
+        except (ValueError, IndexError):
             #print(f"Warning: Could not parse output '{output_str}' for mA={mA}, mH={mH}", flush=True)
             return np.nan
             
         if np.isnan(v_over_T):
             return np.nan      
-        return v_over_T  
+        return v_over_T
                 
     except Exception as e:
         # 记录错误以便调试，包含参数信息
