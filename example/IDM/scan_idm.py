@@ -79,8 +79,19 @@ def plot_PT(mH_values: np.ndarray, mA_values: np.ndarray, PT_param_values: np.nd
     #plt.title('IDM Phase Transition Strength Scan')
     plt.xlabel('$m_H$ [GeV]', fontsize = 20)
     plt.ylabel('$m_A$ [GeV]', fontsize = 20)
-    plt.tight_layout()
+    
+    # 显式设置坐标刻度，确保一致性
     plt.tick_params(labelsize=17)
+    
+    # X 轴：固定间隔 25 GeV
+    plt.xlim(mH_values.min(), mH_values.max())
+    plt.xticks(np.arange(60, 201, 25))  # 60, 85, 110, 135, 160, 185, 200
+    
+    # Y 轴：固定间隔 25 GeV
+    plt.ylim(mA_values.min(), mA_values.max())
+    plt.yticks(np.arange(200, 401, 25))  # 200, 225, 250, 275, 300, 325, 350, 375, 400
+    
+    plt.tight_layout()
     plt.grid(True, linestyle='--', alpha=0.5)
     plt.savefig(f"/home/dayun/fig/{filename}.png", dpi=300)
     print(f"Plot saved to /home/dayun/fig/{filename}.png")
@@ -111,7 +122,7 @@ def main():
                 'mH': format(mH, '.3f'),
                 'mHpm': format(mA, '.3f'),
                 'paramNumber': "1",
-                'Resum': "DJ"
+                'Resum': "Parwani"
             }
             # 使用包含独立参数副本的元组
             tasks.append((i, j, params))
@@ -185,9 +196,9 @@ def main():
         print("Check the 'Debug: NaN result...' messages above and corresponding C++ stderr output.")
 
     # 4. 绘图
-    plot_PT(mH_values, mA_values, v_over_T_grid, "DJ_vot", "$v_n/T_n$")
-    plot_PT(mH_values, mA_values, alpha_grid, "DJ_alpha", "$\\alpha$")
-    plot_PT(mH_values, mA_values, beta_H_grid, "DJ_beta_H", "$\\beta/H$")
+    plot_PT(mH_values, mA_values, v_over_T_grid, "Parwani_vot", "$v_n/T_n$")
+    plot_PT(mH_values, mA_values, alpha_grid, "Parwani_alpha", "$\\alpha$")
+    plot_PT(mH_values, mA_values, beta_H_grid, "Parwani_beta_H", "$\\beta/H$")
     
 
 if __name__ == "__main__":
