@@ -6,24 +6,15 @@
 */
 
 #include <fstream>
+#include <future>
 #include <iostream>
 #include <iomanip>
 #include <stdexcept>
 #include <sstream>
-#include <cstdint>
 #include <filesystem>
-#include <vector>
 #include <string>
 #include <cmath>
 #include <algorithm>
-#include <numeric>
-#include <future>
-#include <atomic>
-#include <mutex>
-#include <chrono>
-#include <functional>
-#include <memory>
-#include <thread>
 #include <Eigen/Dense>
 #include <interpolation.h>
 #include "effectivepotential/potential.hpp"

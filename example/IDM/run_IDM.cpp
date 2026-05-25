@@ -4,7 +4,6 @@
 #include "gravwave_calculator.hpp"
 #include <iostream>
 #include <fstream>
-#include <sstream>
 #include <string>
 #include <algorithm>
 #include <cmath>
