@@ -134,6 +134,7 @@ phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
     double nuc_temp = t[0].TN;
     double nuc_vev1 =  t[0].true_vacuum_TN[0];
     double nuc_vev2 =  t[0].false_vacuum_TN[0];
+    std::cout << t[0].TN << " " << t[0].TC <<std::endl;
     
     // Avoid division by zero
     if (nuc_temp <= 1e-6) {

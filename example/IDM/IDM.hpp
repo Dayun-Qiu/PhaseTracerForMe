@@ -19,6 +19,7 @@
 #include <interpolation.h>
 #include "effectivepotential/potential.hpp"
 #include "SelfEnergy.hpp"
+#include "thermal_function.hpp"
 
 namespace EffectivePotential {
 
@@ -1107,18 +1108,69 @@ namespace EffectivePotential {
         ResummationScheme ResumScheme = ResummationScheme::None;
 
 
+    };     
 
 
 
+////////////////////////
+//        DR   ////////
+////////////////////////
+    class IDM_DR : public Potential {
+
+        private:
+            // constants
+            const double v0 = 246.22; // GeV
+            const double mh = 125.10; // GeV
+            const double mt = 172.76; // GeV
+            const double g = 0.65175;
+            const double gp = 0.35742;
+
+            double gpsq_input = gp*gp;
+            double gsq_input = g*g;
+            double gssq_input = 0.1183 * 0.1183; //SU3
+            double yt_input = sqrt(2.0)*mt/v0;
+            //const double gstar = 110.75;
+
+            // input parameters
+            double lam2_input = 0;
+            double lamL_input = 0;
+            double mA_input = 0;
+            double mH_input = 0;
+            double mHpm_input = 0;
+
+            //others
+            double lam1_input = 0;
+            double mu1sq_input = 0;
+            double mu2sq_input = 0;
+            double lamm_input = 0;
+            double lamp_input = 0;
+            double lam3_input = 0;
+            double lam4_input = 0;
+            double lam5_input = 0;
+
+        public:
+            IDM_DR(double lam2_input_, double lamL_input_, double mA_input_, double mH_input_, double mHpm_input_) {
+                lam2_input = lam2_input_;
+                lamL_input = lamL_input_;
+                mA_input = mA_input_;
+                mH_input = mH_input_;
+                mHpm_input = mHpm_input_;
+                lam1_input = square(mh/v0);
+                mu1sq_input = - 0.5 * square(mh);
+
+                lam4_input = (square(mA_input) + square(mH_input) - 2 * square(mHpm_input))/ square(v0);
+                lam5_input = (square(mH_input) - square(mA_input))/ square(v0);
+                lam3_input = 2 * lamL_input - lam4_input - lam5_input;
+                mu2sq_input = 0.5* (2 * square(mHpm_input) - lam3_input * square(v0));
+                lamp_input = lam3_input + lam4_input + lam5_input;
+                lamm_input = lam3_input + lam4_input - lam5_input;
 
 
+                std::vector<double> x0 = {gpsq_input, gsq_input, gssq_input, lam1_input, lam2_input, lam3_input, lam4_input, lam5_input, yt_input, mu1sq_input, mu2sq_input};
+            }
 
 
-
-
-      };     
-
-
+    };
 
 
 

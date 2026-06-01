@@ -1,4 +1,4 @@
-add_executable(run_IDM run_IDM.cpp)
+add_executable(run_IDM run_IDM.cpp SelfEnergy.cpp)
 
 
 
