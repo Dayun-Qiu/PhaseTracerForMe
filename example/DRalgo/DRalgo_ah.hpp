@@ -21,6 +21,8 @@
 #include <vector>
 #include <cmath>
 #include <complex>
+#include <fstream>
+#include <string>
 #include <Eigen/Eigenvalues>
 #include <interpolation.h>
 
