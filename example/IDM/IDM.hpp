@@ -1346,7 +1346,7 @@ namespace EffectivePotential {
                 double lambdaVLL_3 = -(181. * square(gpsq) * T) / (36. * square(M_PI));
                 double lambdaVLL_4 = -(3. * gsq * gssq * T) / (4. * square(M_PI));  
                 double lambdaVLL_5 = -(11. * gpsq * gssq * T) / (12. * square(M_PI));
-                double lambdaVLL_6 = -(sqrt(gssq* gpsq)  * gssq * T) / (4. * square(M_PI));
+                //double lambdaVLL_6 = -(sqrt(gssq* gpsq)  * gssq * T) / (4. * square(M_PI));
                 double lambdaVLL_7 = (square(gssq) * T) / (4. * square(M_PI));
                 double lambdaVL_1 = -((gssq * square(yt) * T) / (4. * square(M_PI)));
                 double lambdaVL_2 = (sqrt(gsq) * sqrt(gpsq) * T) / (192. * square(M_PI)) * (

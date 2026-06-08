@@ -91,8 +91,8 @@ phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
     pf.set_t_high(300.0);
     pf.set_t_low(10.0);
     pf.set_v(246.22);
-    //pf.set_check_hessian_singular(false);
-    //pf.set_check_vacuum_at_high(false);
+    pf.set_check_hessian_singular(false);
+    pf.set_check_vacuum_at_high(false);
     
     
     // auto mass_splines = idm.get_mass_splines();
@@ -115,11 +115,8 @@ phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
     // extract transitions
     auto t = tf.get_transitions();
     //std::cout <<tf;
-    double alpha, beta_H;
-    phase_parameters(tf, alpha, beta_H);
 
     phase_params result;
-
 
     if (t.size() < 1) {
         // std::cerr << "DEBUG: No transitions found for mA=" << mA << " mH=" << mH << std::endl; 
@@ -135,6 +132,9 @@ phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
         result.alpha = std::nan("");
         return result;
     }
+
+    double alpha, beta_H;
+    phase_parameters(tf, alpha, beta_H);
 
     double nuc_temp = t[0].TN;
     double nuc_vev1 =  t[0].true_vacuum_TN[0];
