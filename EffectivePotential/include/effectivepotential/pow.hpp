@@ -21,8 +21,13 @@
 /**
    Optimized pow(double, int) etc
 */
+#include <complex>
 
 inline double square(double x) {
+  return x * x;
+}
+
+inline std::complex<double> square(std::complex<double> x) {
   return x * x;
 }
 

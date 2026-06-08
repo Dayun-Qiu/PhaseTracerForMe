@@ -21,6 +21,7 @@
 #include "effectivepotential/potential.hpp"
 #include "SelfEnergy.hpp"
 #include "thermal_function.hpp"
+#include "DRIDM_NNLO.hpp"
 
 namespace EffectivePotential {
 
@@ -1120,7 +1121,7 @@ namespace EffectivePotential {
 
         private:
             PROPERTY(int, potential_flag, 1);
-            PROPERTY(int, matching_flag, 1);
+            PROPERTY(int, matching_flag, 2);
             PROPERTY(bool, running_flag, true);
 
             // constants
@@ -1173,7 +1174,7 @@ namespace EffectivePotential {
 
                 std::vector<double> x0 = {gpsq_input, gsq_input, gssq_input, lam1_input, lam2_input, lam3_input, lam4_input, lam5_input, yt_input, mu1sq_input, mu2sq_input};
 
-                solveBetas(x0, RG_scale, 1., 5000., 0.1);
+                solveBetas(x0, RG_scale, 1., 5000., 0.5);
             }
 
             size_t get_n_scalars() const override { return 1;}
@@ -1208,6 +1209,19 @@ namespace EffectivePotential {
             }
 
             bool forbidden(Eigen::VectorXd X) const override { return X[0] < -0.1; } 
+
+            bool check_perturbativity() const {
+                double max_coupling = std::max({std::abs(lam1_input), std::abs(lam2_input), std::abs(lam3_input), std::abs(lam4_input), std::abs(lam5_input)});
+                return max_coupling < 4 * M_PI; // Perturbativity condition
+            }
+
+            bool check_vacuum_stability() const {
+                // Vacuum stability conditions for IDM
+                bool condition1 = lam1_input > 0;
+                bool condition2 = lam2_input > 0;
+                bool condition3 = lam3_input + std::min(0.0, lam4_input - std::abs(lam5_input)) > -std::sqrt(lam1_input * lam2_input);
+                return condition1 && condition2 && condition3;
+            }
 
             void Betas( const std::vector<double>& x, std::vector<double>& dxdt, const double t) override {
                 double gpsq = x[0];
@@ -1524,55 +1538,115 @@ namespace EffectivePotential {
                 double musqSU3 = musqSU3_LO + musqSU3_NLO;
 
                 if ( matching_flag == 0 ) {
-                    return {gpsq*T, gsq*T, gssq*T, lam1*T, mu1sq3d_LO};
+                    return {gpsq*T, gsq*T, gssq*T, lam1*T, lam2*T, lam33d*T, lam43d*T, lam53d*T, mu1sq3d_LO, mu2sq3d_LO};
                 } else if ( matching_flag == 1 ) {
-                    return {gpsq3d, gsq3d, gssq3d, lam13d, mu1sq3d};
+                    return {gpsq3d, gsq3d, gssq3d, lam13d, lam23d, lam33d, lam43d, lam53d, mu1sq3d, mu2sq3d};
                 }
                 //---------------------------------
                 // integrate out temporal scalar
                 //---------------------------------
                 // couplings
                 double RG_scale_3DUS = gsq * T;
+
+                // integrate out the second doublet
+                // double lam13dUS = lam13d - (1. / (16. * M_PI)) * (
+                //     (2. * (2. * square(lam33d) + 2. * lam33d * lam43d + square(lam43d) + square(lam53d))) / sqrt(mu2sq3d) + 
+                //     (8. * square(lambdaVL_1)) / sqrt(musqSU3) + 
+                //     (4. * square(lambdaVL_2)) / (sqrt(musqSU2) + sqrt(musqU1)) + 
+                //     square(lambdaVL_4) / sqrt(musqU1) + 
+                //     (3. * square(lambdaVL_6)) / sqrt(musqSU2)
+                // );
+                // std::cout << "lam33d: " << lam33d << std::endl;
+                // std::cout << "lam43d: " << lam43d << std::endl;
+                // std::cout << "lam53d: " << lam53d << std::endl;
+                // std::cout << "mu2sq3d: " << mu2sq3d << std::endl;
+
+                // double gsq3dUS = gsq3d - (square(gsq3d) * (1. / sqrt(mu2sq3d) + 2. / sqrt(musqSU2))) / (48. * M_PI);
+                // double gpsq3dUS = gpsq3d - square(gpsq3d) / (48. * M_PI * sqrt(mu2sq3d));
+                // double gssq3dUS = gssq3d - square(gssq3d) / (16. * M_PI * sqrt(musqSU3));
+                // // masses
+                // double mu1sq3dUS_LO = mu1sq3d - (1. / (8. * M_PI)) * (
+                //     4. * lam33d * sqrt(mu2sq3d) + 
+                //     2. * lam43d * sqrt(mu2sq3d) + 
+                //     8. * sqrt(musqSU3) * lambdaVL_1 + 
+                //     sqrt(musqU1) * lambdaVL_4 + 
+                //     3. * sqrt(musqSU2) * lambdaVL_6
+                // );
+                // double mu1sq3dUS_NLO = 1. / (128. * square(M_PI)) * (
+                //     6. * gsq3d * lam33d + 2. * gpsq3d * lam33d + 
+                //     24. * lam23d * lam33d - 8. * square(lam33d) + 
+                //     3. * gsq3d * lam43d + gpsq3d * lam43d + 
+                //     12. * lam23d * lam43d - 8. * lam33d * lam43d - 
+                //     8. * square(lam43d) - 12. * square(lam53d) - 
+                //     (3. * square(gsq3d) + square(gpsq3d) - 
+                //     12. * gsq3d * (2. * lam33d + lam43d) - 
+                //     4. * gpsq3d * (2. * lam33d + lam43d) + 
+                //     8. * (2. * square(lam33d) + 2. * lam33d * lam43d + 
+                //         2. * square(lam43d) + 3. * square(lam53d))) * log(RG_scale_3D / (2. * sqrt(mu2sq3d))) + 
+                //     48. * gsq3d * lambdaVL_1 + 
+                //     192. * gsq3d * log(RG_scale_3D / (2. * sqrt(musqSU3))) * lambdaVL_1 - 
+                //     16. * square(lambdaVL_1) - 
+                //     32. * log(RG_scale_3D / (2. * sqrt(musqSU3))) * square(lambdaVL_1) - 
+                //     12. * square(lambdaVL_2) - 
+                //     24. * log(RG_scale_3D / (sqrt(musqSU2) + sqrt(musqU1))) * square(lambdaVL_2) - 
+                //     2. * square(lambdaVL_4) - 
+                //     4. * log(RG_scale_3D / (2. * sqrt(musqU1))) * square(lambdaVL_4) + 
+                //     12. * gsq3d * lambdaVL_6 - 6. * square(lambdaVL_6) - 
+                //     6. * log(RG_scale_3D / (2. * sqrt(musqSU2))) * (square(gsq3d) - 8. * gsq3d * lambdaVL_6 + 
+                //     2. * square(lambdaVL_6)) + 
+                //     15. * lambdaVL_6 * lambdaVLL_1 + 
+                //     (3. * sqrt(musqSU2) * lambdaVL_4 * lambdaVLL_2) / sqrt(musqU1) + 
+                //     (3. * sqrt(musqU1) * lambdaVL_6 * lambdaVLL_2) / sqrt(musqSU2) + 
+                //     lambdaVL_4 * lambdaVLL_3 + 
+                //     (24. * sqrt(musqSU2) * lambdaVL_1 * lambdaVLL_4) / sqrt(musqSU3) + 
+                //     (24. * sqrt(musqSU3) * lambdaVL_6 * lambdaVLL_4) / sqrt(musqSU2) + 
+                //     (8. * sqrt(musqU1) * lambdaVL_1 * lambdaVLL_5) / sqrt(musqSU3) + 
+                //     (8. * sqrt(musqSU3) * lambdaVL_4 * lambdaVLL_5) / sqrt(musqU1) + 
+                //     80. * lambdaVL_1 * lambdaVLL_7
+                // );
+                // double mu1sq3dUS_beta = 1. / (256. * square(M_PI)) * (
+                //     -51. * square(gsq3dUS) + 
+                //     5. * square(gpsq3dUS) + 
+                //     18. * gsq3dUS * (gpsq3dUS - 4. * lam13dUS) - 
+                //     24. * gpsq3dUS * lam13dUS + 
+                //     48. * square(lam13dUS)
+                // );
+                // double mu1Sq3dUS = mu1sq3dUS_LO + mu1sq3dUS_NLO + mu1sq3dUS_beta * log(RG_scale_3DUS / RG_scale_3D);
+
                 double lam13dUS = lam13d - (1. / (16. * M_PI)) * (
-                    (2. * (2. * square(lam33d) + 2. * lam33d * lam43d + square(lam43d) + square(lam53d))) / sqrt(mu2sq3d) + 
-                    (8. * square(lambdaVL_1)) / sqrt(musqSU3) + 
-                    (4. * square(lambdaVL_2)) / (sqrt(musqSU2) + sqrt(musqU1)) + 
-                    square(lambdaVL_4) / sqrt(musqU1) + 
-                    (3. * square(lambdaVL_6)) / sqrt(musqSU2)
+                    (8. * lambdaVL_1 * lambdaVL_1) / sqrt(musqSU3) + 
+                    (4. * lambdaVL_2 * lambdaVL_2) / (sqrt(musqSU2) + sqrt(musqU1)) + 
+                    (lambdaVL_4 * lambdaVL_4) / sqrt(musqU1) + 
+                    (3. * lambdaVL_6 * lambdaVL_6) / sqrt(musqSU2)
                 );
-                double gsq3dUS = gsq3d - (square(gsq3d) * (1. / sqrt(mu2sq3d) + 2. / sqrt(musqSU2))) / (48. * M_PI);
-                double gpsq3dUS = gpsq3d - square(gpsq3d) / (48. * M_PI * sqrt(mu2sq3d));
-                double gssq3dUS = gssq3d - square(gssq3d) / (16. * M_PI * sqrt(musqSU3));
-                // masses
-                double mu1sq3dUS_LO = mu1sq3d - (1. / (8. * M_PI)) * (
-                    4. * lam33d * sqrt(mu2sq3d) + 
-                    2. * lam43d * sqrt(mu2sq3d) + 
-                    8. * sqrt(musqSU3) * lambdaVL_1 + 
-                    sqrt(musqU1) * lambdaVL_4 + 
-                    3. * sqrt(musqSU2) * lambdaVL_6
+                double lam23dUS = lam23d - (1. / (16. * M_PI)) * (
+                    (4. * lambdaVL_3 * lambdaVL_3) / (sqrt(musqSU2) + sqrt(musqU1)) + 
+                    (lambdaVL_5 * lambdaVL_5) / sqrt(musqU1) + 
+                    (3. * lambdaVL_7 * lambdaVL_7) / sqrt(musqSU2)
                 );
-                double mu1sq3dUS_NLO = 1. / (128. * square(M_PI)) * (
-                    6. * gsq3d * lam33d + 2. * gpsq3d * lam33d + 
-                    24. * lam23d * lam33d - 8. * square(lam33d) + 
-                    3. * gsq3d * lam43d + gpsq3d * lam43d + 
-                    12. * lam23d * lam43d - 8. * lam33d * lam43d - 
-                    8. * square(lam43d) - 12. * square(lam53d) - 
-                    (3. * square(gsq3d) + square(gpsq3d) - 
-                    12. * gsq3d * (2. * lam33d + lam43d) - 
-                    4. * gpsq3d * (2. * lam33d + lam43d) + 
-                    8. * (2. * square(lam33d) + 2. * lam33d * lam43d + 
-                        2. * square(lam43d) + 3. * square(lam53d))) * log(RG_scale_3D / (2. * sqrt(mu2sq3d))) + 
-                    48. * gsq3d * lambdaVL_1 + 
-                    192. * gsq3d * log(RG_scale_3D / (2. * sqrt(musqSU3))) * lambdaVL_1 - 
-                    16. * square(lambdaVL_1) - 
-                    32. * log(RG_scale_3D / (2. * sqrt(musqSU3))) * square(lambdaVL_1) - 
-                    12. * square(lambdaVL_2) - 
-                    24. * log(RG_scale_3D / (sqrt(musqSU2) + sqrt(musqU1))) * square(lambdaVL_2) - 
-                    2. * square(lambdaVL_4) - 
-                    4. * log(RG_scale_3D / (2. * sqrt(musqU1))) * square(lambdaVL_4) + 
-                    12. * gsq3d * lambdaVL_6 - 6. * square(lambdaVL_6) - 
-                    6. * log(RG_scale_3D / (2. * sqrt(musqSU2))) * (square(gsq3d) - 8. * gsq3d * lambdaVL_6 + 
-                    2. * square(lambdaVL_6)) + 
+                double lam33dUS = lam33d - (1. / (16. * M_PI)) * (
+                    - (4. * lambdaVL_2 * lambdaVL_3) / (sqrt(musqSU2) + sqrt(musqU1)) + 
+                    (lambdaVL_4 * lambdaVL_5) / sqrt(musqU1) + 
+                    (3. * lambdaVL_6 * lambdaVL_7) / sqrt(musqSU2)
+                );
+                double lam43dUS = lam43d - (lambdaVL_2 * lambdaVL_3) / (2. * M_PI * (sqrt(musqSU2) + sqrt(musqU1)));
+                double lam53dUS = lam53d;
+                double gsq3dUS = gsq3d - (gsq3d * gsq3d * gsq3d) / (24. * M_PI * sqrt(musqSU2));
+                double gpsq3dUS = gpsq3d;
+                double gssq3dUS = gssq3d - (gssq3d * gssq3d * gssq3d) / (16. * M_PI * sqrt(musqSU3));
+
+                double mu1Sq3dUS_LO = mu1sq3d - (8. * sqrt(musqSU3) * lambdaVL_1 + sqrt(musqU1) * lambdaVL_4 + 3. * sqrt(musqSU2) * lambdaVL_6) / (8. * M_PI);
+                double mu1Sq3dUS_NLO = (1. / (128. * square(M_PI))) * (
+                    48. * gssq3d * lambdaVL_1 + 
+                    32. * log(RG_scale_3D / (2. * sqrt(musqSU3))) * (6. * gssq3d - lambdaVL_1) * lambdaVL_1 - 
+                    16. * lambdaVL_1 * lambdaVL_1 - 
+                    12. * lambdaVL_2 * lambdaVL_2 - 
+                    24. * log(RG_scale_3D / (sqrt(musqSU2) + sqrt(musqU1))) * lambdaVL_2 * lambdaVL_2 - 
+                    2. * lambdaVL_4 * lambdaVL_4 - 
+                    4. * log(RG_scale_3D / (2. * sqrt(musqU1))) * lambdaVL_4 * lambdaVL_4 + 
+                    12. * gsq3d * lambdaVL_6 - 
+                    6. * lambdaVL_6 * lambdaVL_6 - 
+                    6. * log(RG_scale_3D / (2. * sqrt(musqSU2))) * (gsq3d * gsq3d - 8. * gsq3d * lambdaVL_6 + 2. * lambdaVL_6 * lambdaVL_6) + 
                     15. * lambdaVL_6 * lambdaVLL_1 + 
                     (3. * sqrt(musqSU2) * lambdaVL_4 * lambdaVLL_2) / sqrt(musqU1) + 
                     (3. * sqrt(musqU1) * lambdaVL_6 * lambdaVLL_2) / sqrt(musqSU2) + 
@@ -1583,18 +1657,47 @@ namespace EffectivePotential {
                     (8. * sqrt(musqSU3) * lambdaVL_4 * lambdaVLL_5) / sqrt(musqU1) + 
                     80. * lambdaVL_1 * lambdaVLL_7
                 );
-                double mu1sq3dUS_beta = 1. / (256. * square(M_PI)) * (
-                    -51. * square(gsq3dUS) + 
-                    5. * square(gpsq3dUS) + 
-                    18. * gsq3dUS * (gpsq3dUS - 4. * lam13dUS) - 
-                    24. * gpsq3dUS * lam13dUS + 
-                    48. * square(lam13dUS)
+                double mu1Sq3dUS_beta = (1. / (256. * square(M_PI))) * (
+                    -45. * gsq3dUS * gsq3dUS + 
+                    7. * gpsq3dUS * gpsq3dUS + 
+                    48. * lam23dUS * lam23dUS - 
+                    8. * gpsq3dUS * (3. * lam23dUS + 2. * lam33dUS + lam43dUS) + 
+                    32. * (lam33dUS * lam33dUS + lam33dUS * lam43dUS + lam43dUS * lam43dUS) + 
+                    6. * gsq3dUS * (3. * gpsq3dUS - 4. * (3. * lam23dUS + 2. * lam33dUS + lam43dUS)) + 
+                    48. * lam53dUS * lam53dUS
                 );
-                double mu1Sq3dUS = mu1sq3dUS_LO + mu1sq3dUS_NLO + mu1sq3dUS_beta * log(RG_scale_3DUS / RG_scale_3D);
+                double mu1Sq3dUS = mu1Sq3dUS_LO + mu1Sq3dUS_NLO + mu1Sq3dUS_beta * log(RG_scale_3DUS / RG_scale_3D);
+                double mu2sq3dUS_LO = mu2sq3d - (sqrt(musqU1) * lambdaVL_5 + 3. * sqrt(musqSU2) * lambdaVL_7) / (8. * M_PI);
+                double mu2sq3dUS_NLO = (1. / (128. * square(M_PI))) * (
+                    -12. * lambdaVL_3 * lambdaVL_3 - 
+                    24. * log(RG_scale_3D / (sqrt(musqSU2) + sqrt(musqU1))) * lambdaVL_3 * lambdaVL_3 - 
+                    2. * lambdaVL_5 * lambdaVL_5 - 
+                    4. * log(RG_scale_3D / (2. * sqrt(musqU1))) * lambdaVL_5 * lambdaVL_5 + 
+                    12. * gsq3d * lambdaVL_7 - 
+                    6. * lambdaVL_7 * lambdaVL_7 - 
+                    6. * log(RG_scale_3D / (2. * sqrt(musqSU2))) * (gsq3d * gsq3d - 8. * gsq3d * lambdaVL_7 + 2. * lambdaVL_7 * lambdaVL_7) + 
+                    15. * lambdaVL_7 * lambdaVLL_1 + 
+                    (3. * sqrt(musqSU2) * lambdaVL_5 * lambdaVLL_2) / sqrt(musqU1) + 
+                    (3. * sqrt(musqU1) * lambdaVL_7 * lambdaVLL_2) / sqrt(musqSU2) + 
+                    lambdaVL_5 * lambdaVLL_3 + 
+                    (24. * sqrt(musqSU3) * lambdaVL_7 * lambdaVLL_4) / sqrt(musqSU2) + 
+                    (8. * sqrt(musqSU3) * lambdaVL_5 * lambdaVLL_5) / sqrt(musqU1)
+                );
+                double mu2sq3dUS_beta = (1. / (256. * square(M_PI))) * (
+                    -45. * gsq3dUS * gsq3dUS + 
+                    7. * gpsq3dUS * gpsq3dUS + 
+                    48. * lam13dUS * lam13dUS - 
+                    8. * gpsq3dUS * (3. * lam13dUS + 2. * lam33dUS + lam43dUS) + 
+                    32. * (lam33dUS * lam33dUS + lam33dUS * lam43dUS + lam43dUS * lam43dUS) + 
+                    6. * gsq3dUS * (3. * gpsq3dUS - 4. * (3. * lam13dUS + 2. * lam33dUS + lam43dUS)) + 
+                    48. * lam53dUS * lam53dUS
+                );
+                double mu2sq3dUS = mu2sq3dUS_LO + mu2sq3dUS_NLO + mu2sq3dUS_beta * log(RG_scale_3DUS / RG_scale_3D);
+
                 if ( matching_flag == 2 ) {
-                    return {gpsq3dUS*T, gsq3dUS*T, gssq3dUS*T, lam13dUS*T, mu1Sq3dUS};
+                    return {gpsq3dUS, gsq3dUS, gssq3dUS, lam13dUS, lam23dUS, lam33dUS, lam43dUS, lam53dUS, mu1Sq3dUS, mu2sq3dUS};
                 }
-                return {0., 0., 0., 0., 0.};
+                return {0., 0., 0., 0., 0., 0., 0., 0., 0., 0.};
             }
 
             double V(Eigen::VectorXd X, double T) const override {
@@ -1604,22 +1707,37 @@ namespace EffectivePotential {
                 std::complex<double> gsq(par[1], 0);
                 std::complex<double> gssq(par[2], 0);
                 std::complex<double> lam1(par[3], 0);
-                std::complex<double> mu1sq(par[4], 0);
+                std::complex<double> lam2(par[4], 0);
+                std::complex<double> lam3(par[5], 0);
+                std::complex<double> lam4(par[6], 0);
+                std::complex<double> lam5(par[7], 0);
+                std::complex<double> mu1sq(par[8], 0);
+                std::complex<double> mu2sq(par[9], 0);
 
                 std::complex<double> phi(X[0]/sqrt(T + 1e-15),0);
 
                 std::complex<double> veffLO = 0.5* pow(phi,2.)*mu1sq + 0.125*pow(phi,4.)*lam1 ;
+
                 if ( potential_flag == 0 ) {
                     return T * veffLO.real();
                 }
 
-                std::complex<double> veffNLO = -1./(12. * M_PI) * (
-                    3. * pow(mu1sq + 0.5 * lam1 * pow(phi, 2), 1.5) + 
-                    pow(mu1sq + 1.5 * lam1 * pow(phi, 2), 1.5) + 
-                    0.25 * (2. * pow(gsq * pow(phi, 2), 1.5) + pow((gsq + gpsq) * pow(phi, 2), 1.5)));
+                std::complex<double> veffNLO = 
+                    - pow(mu1sq + 0.5 * lam1 * phi * phi, 1.5) / (4. * M_PI) - 
+                    pow(mu1sq + 1.5 * lam1 * phi * phi, 1.5) / (12. * M_PI) - 
+                    pow(mu2sq + 0.5 * lam3 * phi * phi, 1.5) / (6. * M_PI) - 
+                    pow(mu2sq + 0.5 * (lam3 + lam4 - lam5) * phi * phi, 1.5) / (12. * M_PI) - 
+                    pow(mu2sq + 0.5 * (lam3 + lam4 + lam5) * phi * phi, 1.5) / (12. * M_PI) + 
+                    2. * (- pow(gsq * phi * phi, 1.5) / (48. * M_PI) - pow((gsq + gpsq) * phi * phi, 1.5) / (96. * M_PI));
 
                 if ( potential_flag == 1 ) {
                     return T * veffLO.real() + T * veffNLO.real();
+                }
+
+                if ( potential_flag == 2 ) {
+                    DRIDM_NNLO VNNLO;
+                    std::complex<double> veffNNLO = VNNLO.V2(X, T, par);
+                    return T * veffLO.real() + T * veffNLO.real() + T * veffNNLO.real();
                 }
 
                 return 0.;

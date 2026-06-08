@@ -9,6 +9,7 @@
 #include <cmath>
 #include <cstdlib>
 #include <map>
+#include <vector>
 
 
 struct phase_params {
@@ -88,7 +89,11 @@ phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
     pf.set_lower_bounds({-400.0});
     pf.set_guess_points({Eigen::VectorXd::Constant(1, 246.22)});
     pf.set_t_high(300.0);
+    pf.set_t_low(10.0);
     pf.set_v(246.22);
+    //pf.set_check_hessian_singular(false);
+    //pf.set_check_vacuum_at_high(false);
+    
     
     // auto mass_splines = idm.get_mass_splines();
     // std::cout << "Test..." << std::endl;
@@ -232,44 +237,79 @@ int main(int argc, char *argv[]) {
 
     LOGGER(fatal);
 
-    EffectivePotential::IDM idm;
-    // Initialize the IDM parameters
-    idm.init_params(lam2, lamL, mA, mH, mHpm, paramNumber);
+    phase_params result;
 
-    // Check perturbativity and vacuum stability
-    if (!idm.check_perturbativity()) {
-        std::cerr << "DEBUG: Perturbativity check failed for mA=" << mA << " mH=" << mH << std::endl;
-        std::cout << std::nan("")<< std::endl;
-        return 1;
-    }
-    
-    if (!idm.check_vacuum_stability()) {
-        std::cerr << "DEBUG: Vacuum stability check failed for mA=" << mA << " mH=" << mH << std::endl;
-        std::cout << std::nan("")<< std::endl;
-        return 1;
-    }
+    if (resum == "DR") {
+        EffectivePotential::IDM_DR idm(lam2, lamL, mA, mH, mHpm);
+        // 生成势能数据
+        std::vector<double> phis(1000), Vs(1000);
+        for (int i = 0; i < 1000; ++i) {
+            phis[i] = 0.4 * (i+1) ;
+            Vs[i] = idm.V(Eigen::VectorXd::Constant(1, phis[i]), 300.);
+        }
+        // 保存数据
+        std::ofstream fout("/home/dayun/data/Vs.txt");
+        fout << "# phi V\n";
+        for (int i = 0; i < 1000; ++i) {
+            fout << phis[i] << " " << Vs[i] << "\n";
+        }
+        fout.close();
 
-    // Calculate the conterterms
-    idm.calc_conterterms();
+        // Check perturbativity and vacuum stability
+        if (!idm.check_perturbativity()) {
+            std::cerr << "DEBUG: Perturbativity check failed for mA=" << mA << " mH=" << mH << std::endl;
+            std::cout << std::nan("")<< std::endl;
+            return 1;
+        }
+        
+        if (!idm.check_vacuum_stability()) {
+            std::cerr << "DEBUG: Vacuum stability check failed for mA=" << mA << " mH=" << mH << std::endl;
+            std::cout << std::nan("")<< std::endl;
+            return 1;
+        }
 
-    // Set resummation scheme
-    if (resum == "None") {
-        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::None);
-    } else if (resum == "AE") {
-        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::ArnoldEspinosa);
-    } else if (resum == "Parwani") {
-        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::Parwani);
-    } else if (resum == "DJ") {
-        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::DolanJackiw);
-    } else if (resum == "PD") {
-        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::PartialDressing);
-        idm.init_mass_splines();
+        result = calculate_phasetransition(idm);
     } else {
-        std::cerr << "Warning: Invalid resummation scheme '" << resum << "'. Defaulting to no resummation." << std::endl;
-        idm.set_resummation_scheme(EffectivePotential::ResummationScheme::None);
+        EffectivePotential::IDM idm;
+        // Initialize the IDM parameters
+        idm.init_params(lam2, lamL, mA, mH, mHpm, paramNumber);
+
+        // Check perturbativity and vacuum stability
+        if (!idm.check_perturbativity()) {
+            std::cerr << "DEBUG: Perturbativity check failed for mA=" << mA << " mH=" << mH << std::endl;
+            std::cout << std::nan("")<< std::endl;
+            return 1;
+        }
+        
+        if (!idm.check_vacuum_stability()) {
+            std::cerr << "DEBUG: Vacuum stability check failed for mA=" << mA << " mH=" << mH << std::endl;
+            std::cout << std::nan("")<< std::endl;
+            return 1;
+        }
+
+        // Calculate the conterterms
+        idm.calc_conterterms();
+
+        // Set resummation scheme
+        if (resum == "None") {
+            idm.set_resummation_scheme(EffectivePotential::ResummationScheme::None);
+        } else if (resum == "AE") {
+            idm.set_resummation_scheme(EffectivePotential::ResummationScheme::ArnoldEspinosa);
+        } else if (resum == "Parwani") {
+            idm.set_resummation_scheme(EffectivePotential::ResummationScheme::Parwani);
+        } else if (resum == "DJ") {
+            idm.set_resummation_scheme(EffectivePotential::ResummationScheme::DolanJackiw);
+        } else if (resum == "PD") {
+            idm.set_resummation_scheme(EffectivePotential::ResummationScheme::PartialDressing);
+            idm.init_mass_splines();
+        } else {
+            std::cerr << "Warning: Invalid resummation scheme '" << resum << "'. Defaulting to no resummation." << std::endl;
+            idm.set_resummation_scheme(EffectivePotential::ResummationScheme::None);
+        }
+
+        result = calculate_phasetransition(idm);
     }
 
-    auto result = calculate_phasetransition(idm);
 
     if (std::isnan(result.voT)) {
         std::cout << "nan" << " " << "nan" << " " << "nan" << std::endl;
