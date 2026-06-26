@@ -294,7 +294,7 @@ protected:
   /** Minimum step size for finding minima*/
   PROPERTY(double, find_min_min_step, 1.e-4)
   /** Timeout for finding a minima */
-  PROPERTY(double, find_min_max_time, 5.)
+  PROPERTY(double, find_min_max_time, 60.)
   /** Initial absolute step size when tracing a minimum */
   PROPERTY(double, find_min_trace_abs_step, 1.)
   /** Initial absolute step size when finding a minimum */

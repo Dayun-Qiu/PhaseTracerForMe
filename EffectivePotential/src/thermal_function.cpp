@@ -67,9 +67,10 @@ double J_B(double x, int deriv_order) {
     static const auto spline = make_cubic_spline(J_B_X_DATA, J_B_Y_DATA);
     
     static const double spline_at_min_x_val = alglib::spline1dcalc(spline, min_x);
-    static const double spline_at_min_x_der1 = 0.0;  
-    static const double spline_at_min_x_der2 = 0.0;   
+    //static const double spline_at_min_x_der1 = 0.0;  
+    //static const double spline_at_min_x_der2 = 0.0;   
 
+    
     if (x < min_x) {
         if (deriv_order == 0) return spline_at_min_x_val;
         else return 0.0;   
@@ -79,6 +80,10 @@ double J_B(double x, int deriv_order) {
     } 
     else {
         double val, der1, der2;
+        if (std::abs(x) < 1e-20) {
+            if (x < 0.0) x = std::min(-1e-20, x);
+            if (x >= 0.0) x = std::max(1e-20, x);
+        }
         // spline1ddiff computes value, first, and second derivatives in one call
         alglib::spline1ddiff(spline, x, val, der1, der2);
         switch (deriv_order) {
@@ -97,6 +102,8 @@ double J_F(double x, int deriv_order) {
 
     static const auto spline = make_cubic_spline(J_F_X_DATA, J_F_Y_DATA);
     static const double spline_at_min_x_val = alglib::spline1dcalc(spline, min_x);
+    //static const double spline_at_min_x_der1 = 0.0;  
+    //static const double spline_at_min_x_der2 = 0.0; 
 
     if (x < min_x) {
         if (deriv_order == 0) return spline_at_min_x_val;

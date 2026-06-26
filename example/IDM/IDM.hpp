@@ -6,16 +6,14 @@
 */
 
 #include <complex>
-#include <fstream>
-#include <future>
-#include <iostream>
-#include <iomanip>
-#include <stdexcept>
-#include <sstream>
 #include <filesystem>
+#include <future>
+#include <stdexcept>
 #include <string>
 #include <cmath>
 #include <algorithm>
+#include <fstream>
+#include <sstream>
 #include <Eigen/Dense>
 #include <interpolation.h>
 #include "effectivepotential/potential.hpp"
@@ -30,14 +28,17 @@ namespace EffectivePotential {
         Parwani,
         ArnoldEspinosa,
         PartialDressing,
-        DolanJackiw
+        DolanJackiw,
+        DR
     };
 
     enum class ThermalMassScheme {
         Tree,
         HighT,
         Exact,
-        CTterm
+        CTterm,
+        dMdT,
+        dMdx
     };
 
     struct IDMParameters {
@@ -104,6 +105,7 @@ namespace EffectivePotential {
             return const_cast<alglib::spline2dinterpolant&>(const_cast<const MassSplines*>(this)->get(idx));
         }
     };
+
   
     struct ConterTermParameters {
         double delta_mu1sq;
@@ -177,6 +179,7 @@ namespace EffectivePotential {
             return mass_splines_;
         }
 
+        
         bool check_perturbativity() const {
             double max_coupling = std::max({std::abs(lam1), std::abs(lam2), std::abs(lam3), std::abs(lam4), std::abs(lam5)});
             return max_coupling < 4 * M_PI; // Perturbativity condition
@@ -212,6 +215,69 @@ namespace EffectivePotential {
             double phi = X[0];
             return 0.5 * delta_mu1sq * square(phi) + 0.125 * delta_lam1 * pow_4(phi);
         }
+
+        // void fitmass(Eigen::VectorXd X, double T,  std::array<alglib::spline1dinterpolant, 13>& splines, ThermalMassScheme ms) const {
+        //     double phi = X[0];
+        //     SelfEnergy se(lam2, lamL, mA, mH, mHpm);
+        //     struct GapPoint {
+        //         double x;
+        //         std::array<double, 13> values;
+        //     };
+        //     std::vector<GapPoint> points;
+        //     for (int i = 0; i < 401; ++i) {
+        //         double phix;
+        //         double Tx;
+        //         if (ms == ThermalMassScheme::dMdx) {
+        //             phix = i ;
+        //             Tx = T;
+        //             auto bosons_init = boson_massSq(Eigen::VectorXd::Constant(1, phix), Tx, ThermalMassScheme::Tree); 
+        //             auto bosons_bare = boson_massSq(Eigen::VectorXd::Constant(1, phix), Tx, ThermalMassScheme::CTterm);
+        //             auto result = se.solve_gap_equations(phix, Tx, 1e-3, bosons_bare, bosons_init, 300);
+        //             if (result.success) {
+        //                 GapPoint pt;
+        //                 pt.x = phix;
+        //                 std::copy(result.x.begin(), result.x.end(), pt.values.begin());
+        //                 points.push_back(pt);
+        //             } 
+        //         } else if (ms == ThermalMassScheme::dMdT) {
+        //             Tx = i ;
+        //             phix = phi;
+        //             auto bosons_init = boson_massSq(Eigen::VectorXd::Constant(1, phix), Tx, ThermalMassScheme::Tree); 
+        //             auto bosons_bare = boson_massSq(Eigen::VectorXd::Constant(1, phix), Tx, ThermalMassScheme::CTterm);
+        //             auto result = se.solve_gap_equations(phix, Tx, 1e-3, bosons_bare, bosons_init, 300);
+        //             if (result.success) {
+        //                 GapPoint pt;
+        //                 pt.x = Tx;
+        //                 std::copy(result.x.begin(), result.x.end(), pt.values.begin());
+        //                 points.push_back(pt);
+        //             }
+        //         }
+        //     }
+        //     if (points.empty()) throw std::runtime_error("Failed to calculate gap points in phi = " + std::to_string(phi) + " and T = " + std::to_string(T));
+        //     double rho = 0.1; // 光滑系数
+        //     for (int k = 0; k < 13; ++k) {
+        //         // 从 points 中提取第 k 个分量的数据
+        //         std::vector<double> x_vals, y_vals;
+        //         x_vals.reserve(points.size());
+        //         y_vals.reserve(points.size());
+        //         for (const auto& pt : points) {
+        //             x_vals.push_back(pt.x);
+        //             y_vals.push_back(pt.values[k]);
+        //         }
+        //         // 转换为 ALGLIB 数组
+        //         alglib::real_1d_array x_arr, y_arr;
+        //         x_arr.setcontent(x_vals.size(), x_vals.data());
+        //         y_arr.setcontent(y_vals.size(), y_vals.data());
+        //         if (x_vals.size() >= 4) {
+        //             alglib::spline1dfitreport rep;
+        //             alglib::spline1dfit(x_arr, y_arr, 10, rho, splines[k], rep);
+        //         } else {
+        //             // 点数不足，线性插值
+        //             //alglib::spline1dbuildlinear(x_arr, y_arr, splines[k]);
+        //             throw std::runtime_error("Insufficient points to fit spline for k = " + std::to_string(k));
+        //         }
+        //     }
+        // }
 
         std::pair<std::vector<double>, std::vector<double>> boson_massSq(Eigen::VectorXd X, double T, ThermalMassScheme ms) const {
             double phi = X[0];
@@ -303,6 +369,25 @@ namespace EffectivePotential {
                 }
                 case ThermalMassScheme::Exact: { 
                     // exact thermal masses, as it requires solving gap equations self-consistently. 
+                    // if (std::abs(T - cached_T) > 1e-6 ) {
+                    //     cached_T = T;
+                    //     fitmass(X, T, cached_splines_T, ThermalMassScheme::dMdx);
+                    // }
+                    // double Mh2 = alglib::spline1dcalc(cached_splines_T[0], phi);
+                    // double MG2 = alglib::spline1dcalc(cached_splines_T[1], phi);
+                    // double MA2 = alglib::spline1dcalc(cached_splines_T[2], phi);
+                    // double MH2 = alglib::spline1dcalc(cached_splines_T[3], phi);
+                    // double MHpm2 = alglib::spline1dcalc(cached_splines_T[4], phi);
+                    // double MW2L = alglib::spline1dcalc(cached_splines_T[5], phi);
+                    // double MZ2L = alglib::spline1dcalc(cached_splines_T[6], phi);
+                    // double Mga2L = alglib::spline1dcalc(cached_splines_T[7], phi);
+                    // double MW2T = alglib::spline1dcalc(cached_splines_T[8], phi);
+                    // double MZ2T = alglib::spline1dcalc(cached_splines_T[9], phi);
+                    // double Mga2T = alglib::spline1dcalc(cached_splines_T[10], phi);
+                    // double swL = alglib::spline1dcalc(cached_splines_T[11], phi);
+                    // double swT = alglib::spline1dcalc(cached_splines_T[12], phi);
+
+
                     double Mh2 = alglib::spline2dcalc(mass_splines_.Mh2, phi, T);
                     double MG2 = alglib::spline2dcalc(mass_splines_.MG2, phi, T);
                     double MA2 = alglib::spline2dcalc(mass_splines_.MA2, phi, T);
@@ -316,10 +401,135 @@ namespace EffectivePotential {
                     double Mga2T = alglib::spline2dcalc(mass_splines_.Mga2T, phi, T);
                     double swL = alglib::spline2dcalc(mass_splines_.swL, phi, T);
                     double swT = alglib::spline2dcalc(mass_splines_.swT, phi, T);
+
+                    
                     std::vector<double> MSquares = {Mh2, MG2, MA2, MH2, MHpm2, MW2L, MZ2L, Mga2L, MW2T, MZ2T, Mga2T};
                     std::vector<double> mixing_angles = {swL, swT};
                     return std::make_pair(MSquares, mixing_angles);
                 }
+                case ThermalMassScheme::dMdx: {
+                    // if (std::abs(T - cached_T) > 1e-6 ) {
+                    //     cached_T = T;
+                    //     fitmass(X, T, cached_splines_T, ThermalMassScheme::dMdx);
+                    // }
+                    // double Mh2, dMh2_dx, d2Mh2_dx2;
+                    // alglib::spline1ddiff(cached_splines_T[0], phi, Mh2, dMh2_dx, d2Mh2_dx2);
+                    // double MG2, dMG2_dx, d2MG2_dx2;
+                    // alglib::spline1ddiff(cached_splines_T[1], phi, MG2, dMG2_dx, d2MG2_dx2);
+                    // double MA2, dMA2_dx, d2MA2_dx2;
+                    // alglib::spline1ddiff(cached_splines_T[2], phi, MA2, dMA2_dx, d2MA2_dx2);
+                    // double MH2, dMH2_dx, d2MH2_dx2;
+                    // alglib::spline1ddiff(cached_splines_T[3], phi, MH2, dMH2_dx, d2MH2_dx2);
+                    // double MHpm2, dMHpm2_dx, d2MHpm2_dx2;
+                    // alglib::spline1ddiff(cached_splines_T[4], phi, MHpm2, dMHpm2_dx, d2MHpm2_dx2);
+                    // double MW2L, dMW2L_dx, d2MW2L_dx2;
+                    // alglib::spline1ddiff(cached_splines_T[5], phi, MW2L, dMW2L_dx, d2MW2L_dx2);
+                    // double MZ2L, dMZ2L_dx, d2MZ2L_dx2;
+                    // alglib::spline1ddiff(cached_splines_T[6], phi, MZ2L, dMZ2L_dx, d2MZ2L_dx2);
+                    // double Mga2L, dMga2L_dx, d2Mga2L_dx2;
+                    // alglib::spline1ddiff(cached_splines_T[7], phi, Mga2L, dMga2L_dx, d2Mga2L_dx2);
+                    // double MW2T, dMW2T_dx, d2MW2T_dx2;
+                    // alglib::spline1ddiff(cached_splines_T[8], phi, MW2T, dMW2T_dx, d2MW2T_dx2);
+                    // double MZ2T, dMZ2T_dx, d2MZ2T_dx2;
+                    // alglib::spline1ddiff(cached_splines_T[9], phi, MZ2T, dMZ2T_dx, d2MZ2T_dx2);
+                    // double Mga2T, dMga2T_dx, d2Mga2T_dx2;
+                    // alglib::spline1ddiff(cached_splines_T[10], phi, Mga2T, dMga2T_dx, d2Mga2T_dx2);
+                    // double swL, dswL_dx, d2swL_dx2;
+                    // alglib::spline1ddiff(cached_splines_T[11], phi, swL, dswL_dx, d2swL_dx2);
+                    // double swT, dswT_dx, d2swT_dx2;
+                    // alglib::spline1ddiff(cached_splines_T[12], phi, swT, dswT_dx, d2swT_dx2);
+                    double Mh2, dMh2_dx, dMh2_dt;
+                    alglib::spline2ddiff(mass_splines_.Mh2, phi, T, Mh2, dMh2_dx, dMh2_dt);
+                    double MG2, dMG2_dx, dMG2_dt;
+                    alglib::spline2ddiff(mass_splines_.MG2, phi, T, MG2, dMG2_dx, dMG2_dt);
+                    double MA2, dMA2_dx, dMA2_dt;
+                    alglib::spline2ddiff(mass_splines_.MA2, phi, T, MA2, dMA2_dx, dMA2_dt);
+                    double MH2, dMH2_dx, dMH2_dt;
+                    alglib::spline2ddiff(mass_splines_.MH2, phi, T, MH2, dMH2_dx, dMH2_dt);
+                    double MHpm2, dMHpm2_dx, dMHpm2_dt;
+                    alglib::spline2ddiff(mass_splines_.MHpm2, phi, T, MHpm2, dMHpm2_dx, dMHpm2_dt);
+                    double MW2L, dMW2L_dx, dMW2L_dt;
+                    alglib::spline2ddiff(mass_splines_.MW2L, phi, T, MW2L, dMW2L_dx, dMW2L_dt);
+                    double MZ2L, dMZ2L_dx, dMZ2L_dt;
+                    alglib::spline2ddiff(mass_splines_.MZ2L, phi, T, MZ2L, dMZ2L_dx, dMZ2L_dt);
+                    double Mga2L, dMga2L_dx, dMga2L_dt;
+                    alglib::spline2ddiff(mass_splines_.Mga2L, phi, T, Mga2L, dMga2L_dx, dMga2L_dt);
+                    double MW2T, dMW2T_dx, dMW2T_dt;
+                    alglib::spline2ddiff(mass_splines_.MW2T, phi, T, MW2T, dMW2T_dx, dMW2T_dt);
+                    double MZ2T, dMZ2T_dx, dMZ2T_dt;
+                    alglib::spline2ddiff(mass_splines_.MZ2T, phi, T, MZ2T, dMZ2T_dx, dMZ2T_dt);
+                    double Mga2T, dMga2T_dx, dMga2T_dt;
+                    alglib::spline2ddiff(mass_splines_.Mga2T, phi, T, Mga2T, dMga2T_dx, dMga2T_dt);
+                    double swL, dswL_dx, dswL_dt;
+                    alglib::spline2ddiff(mass_splines_.swL, phi, T, swL, dswL_dx, dswL_dt);
+                    double swT, dswT_dx, dswT_dt;
+                    alglib::spline2ddiff(mass_splines_.swT, phi, T, swT, dswT_dx, dswT_dt);
+
+                    std::vector<double> MSquares = {dMh2_dx, dMG2_dx, dMA2_dx, dMH2_dx, dMHpm2_dx, dMW2L_dx, dMZ2L_dx, dMga2L_dx, dMW2T_dx, dMZ2T_dx, dMga2T_dx};
+                    std::vector<double> mixing_angles = {dswL_dx, dswT_dx};
+                    return std::make_pair(MSquares, mixing_angles);
+                } 
+                case ThermalMassScheme::dMdT: {
+                    // if (std::abs(phi - cached_phi) > 1e-6 ) {
+                    //     cached_phi = phi;
+                    //     fitmass(X, T, cached_splines_phi, ThermalMassScheme::dMdT);
+                    // }
+                    // double Mh2, dMh2_dx, d2Mh2_dx2;
+                    // alglib::spline1ddiff(cached_splines_phi[0], T, Mh2, dMh2_dx, d2Mh2_dx2);
+                    // double MG2, dMG2_dx, d2MG2_dx2;
+                    // alglib::spline1ddiff(cached_splines_phi[1], T, MG2, dMG2_dx, d2MG2_dx2);
+                    // double MA2, dMA2_dx, d2MA2_dx2;
+                    // alglib::spline1ddiff(cached_splines_phi[2], T, MA2, dMA2_dx, d2MA2_dx2);
+                    // double MH2, dMH2_dx, d2MH2_dx2;
+                    // alglib::spline1ddiff(cached_splines_phi[3], T, MH2, dMH2_dx, d2MH2_dx2);
+                    // double MHpm2, dMHpm2_dx, d2MHpm2_dx2;
+                    // alglib::spline1ddiff(cached_splines_phi[4], T, MHpm2, dMHpm2_dx, d2MHpm2_dx2);
+                    // double MW2L, dMW2L_dx, d2MW2L_dx2;
+                    // alglib::spline1ddiff(cached_splines_phi[5], T, MW2L, dMW2L_dx, d2MW2L_dx2);
+                    // double MZ2L, dMZ2L_dx, d2MZ2L_dx2;
+                    // alglib::spline1ddiff(cached_splines_phi[6], T, MZ2L, dMZ2L_dx, d2MZ2L_dx2);
+                    // double Mga2L, dMga2L_dx, d2Mga2L_dx2;
+                    // alglib::spline1ddiff(cached_splines_phi[7], T, Mga2L, dMga2L_dx, d2Mga2L_dx2);
+                    // double MW2T, dMW2T_dx, d2MW2T_dx2;
+                    // alglib::spline1ddiff(cached_splines_phi[8], T, MW2T, dMW2T_dx, d2MW2T_dx2);
+                    // double MZ2T, dMZ2T_dx, d2MZ2T_dx2;
+                    // alglib::spline1ddiff(cached_splines_phi[9], T, MZ2T, dMZ2T_dx, d2MZ2T_dx2);
+                    // double Mga2T, dMga2T_dx, d2Mga2T_dx2;
+                    // alglib::spline1ddiff(cached_splines_phi[10], T, Mga2T, dMga2T_dx, d2Mga2T_dx2);
+                    // double swL, dswL_dx, d2swL_dx2;
+                    // alglib::spline1ddiff(cached_splines_phi[11], T, swL, dswL_dx, d2swL_dx2);
+                    // double swT, dswT_dx, d2swT_dx2;
+                    // alglib::spline1ddiff(cached_splines_phi[12], T, swT, dswT_dx, d2swT_dx2);
+                    double Mh2, dMh2_dx, dMh2_dt;
+                    alglib::spline2ddiff(mass_splines_.Mh2, phi, T, Mh2, dMh2_dx, dMh2_dt);
+                    double MG2, dMG2_dx, dMG2_dt;
+                    alglib::spline2ddiff(mass_splines_.MG2, phi, T, MG2, dMG2_dx, dMG2_dt);
+                    double MA2, dMA2_dx, dMA2_dt;
+                    alglib::spline2ddiff(mass_splines_.MA2, phi, T, MA2, dMA2_dx, dMA2_dt);
+                    double MH2, dMH2_dx, dMH2_dt;
+                    alglib::spline2ddiff(mass_splines_.MH2, phi, T, MH2, dMH2_dx, dMH2_dt);
+                    double MHpm2, dMHpm2_dx, dMHpm2_dt;
+                    alglib::spline2ddiff(mass_splines_.MHpm2, phi, T, MHpm2, dMHpm2_dx, dMHpm2_dt);
+                    double MW2L, dMW2L_dx, dMW2L_dt;
+                    alglib::spline2ddiff(mass_splines_.MW2L, phi, T, MW2L, dMW2L_dx, dMW2L_dt);
+                    double MZ2L, dMZ2L_dx, dMZ2L_dt;
+                    alglib::spline2ddiff(mass_splines_.MZ2L, phi, T, MZ2L, dMZ2L_dx, dMZ2L_dt);
+                    double Mga2L, dMga2L_dx, dMga2L_dt;
+                    alglib::spline2ddiff(mass_splines_.Mga2L, phi, T, Mga2L, dMga2L_dx, dMga2L_dt);
+                    double MW2T, dMW2T_dx, dMW2T_dt;
+                    alglib::spline2ddiff(mass_splines_.MW2T, phi, T, MW2T, dMW2T_dx, dMW2T_dt);
+                    double MZ2T, dMZ2T_dx, dMZ2T_dt;
+                    alglib::spline2ddiff(mass_splines_.MZ2T, phi, T, MZ2T, dMZ2T_dx, dMZ2T_dt);
+                    double Mga2T, dMga2T_dx, dMga2T_dt;
+                    alglib::spline2ddiff(mass_splines_.Mga2T, phi, T, Mga2T, dMga2T_dx, dMga2T_dt);
+                    double swL, dswL_dx, dswL_dt;
+                    alglib::spline2ddiff(mass_splines_.swL, phi, T, swL, dswL_dx, dswL_dt);
+                    double swT, dswT_dx, dswT_dt;
+                    alglib::spline2ddiff(mass_splines_.swT, phi, T, swT, dswT_dx, dswT_dt);
+                    std::vector<double> MSquares = {dMh2_dx, dMG2_dx, dMA2_dx, dMH2_dx, dMHpm2_dx, dMW2L_dx, dMZ2L_dx, dMga2L_dx, dMW2T_dx, dMZ2T_dx, dMga2T_dx};
+                    std::vector<double> mixing_angles = {dswL_dx, dswT_dx};
+                    return std::make_pair(MSquares, mixing_angles);
+                } 
                 default:
                     throw std::invalid_argument("unknown ThermalMassScheme");
             }
@@ -450,10 +660,9 @@ namespace EffectivePotential {
             cb[10] = 0.0;                        // d(mga2T)/d(phi) = 0
 
             // Boson contribution: sum(0.5 * nb * cb * Ijb(M2, T, 1))
-            for (size_t i = 0; i < mb2.size(); ++i) {
+            for (size_t i = 0; i < 11; ++i) {
                 y += 0.5 * nb[i] * cb[i] * Ijb(mb2[i], T, 1);
             }
-
             // UV terms for transverse modes (indices 8, 9, 10 correspond to mW2T, mZ2T, mga2T)
             y += cb[8] * UV_term(mb2[8], -2.0, 1);
             y += 0.5 * cb[9] * UV_term(mb2[9], -2.0, 1);
@@ -461,6 +670,108 @@ namespace EffectivePotential {
 
             return y;
         }
+
+        double d2V1_dXdT(Eigen::VectorXd X, double T) const {
+            double phi = X[0];
+            double y = 0.0;
+
+            // Fermion contribution (top quark)
+            std::vector<double> mf2 = fermion_massSq(X);  
+            std::vector<double> nf = fermion_dofs();  
+            std::vector<double> ct = {square(yt) * phi}; 
+            for (size_t i = 0; i < nf.size(); ++i) {
+                double x = mf2[i] / square(T);
+                y -= 0.5 * nf[i] * ct[i] * (- 2 * T * J_F(x, 1) + 2 * x * T * J_F(x, 2)) / square(M_PI);
+            }    
+
+            // Boson contribution
+            auto bosons = boson_massSq(X, T, ThermalMassScheme::Exact);
+            auto nb = boson_dofs();
+            const auto& mb2 = bosons.first;
+            auto dbosons_dt = boson_massSq(X, T, ThermalMassScheme::dMdT);
+            const auto& dmb2_dt = dbosons_dt.first;
+            std::vector<double> cb(11);
+            cb[0] = 3.0 * lam1 * phi;           // d(mh2)/d(phi)
+            cb[1] = lam1 * phi;                  // d(mG2)/d(phi)
+            cb[2] = lamm * phi;                  // d(mA2)/d(phi)
+            cb[3] = lamp * phi;                  // d(mH2)/d(phi)
+            cb[4] = lam3 * phi;                  // d(mHpm2)/d(phi)
+            cb[5] = 0.5 * square(g) * phi;      // d(mW2L)/d(phi)
+            cb[6] = 0.5 * (square(g) + square(gp)) * phi;  // d(mZ2L)/d(phi)
+            cb[7] = 0.0;                         // d(mga2L)/d(phi) = 0
+            cb[8] = 0.5 * square(g) * phi;      // d(mW2T)/d(phi)
+            cb[9] = 0.5 * (square(g) + square(gp)) * phi;  // d(mZ2T)/d(phi)
+            cb[10] = 0.0;                        // d(mga2T)/d(phi) = 0
+            for (size_t i = 0; i < 11; ++i) {
+                double x = mb2[i] / square(T);
+                y += 0.5 * nb[i] * cb[i] * ( 2 * T * J_B(x, 1) + (-2 * x * T + dmb2_dt[i]) * J_B(x, 2)) / square(M_PI);
+            }
+            // UV terms for transverse modes (indices 8, 9, 10 correspond to mW2T, mZ2T, mga2T)
+            y += - cb[8] * UV_term(mb2[8], -2.0, 2) * dmb2_dt[8];
+            y += - 0.5 * cb[9] * UV_term(mb2[9], -2.0, 2) * dmb2_dt[9];
+            y += - 0.5 * cb[10] * UV_term(mb2[10], -2.0, 2) * dmb2_dt[10];
+
+            return y;
+        }
+
+        double d2V1_dX2(Eigen::VectorXd X, double T) const {
+            double phi = X[0];
+            double y = 0.0;
+
+            // Fermion contribution (top quark)
+            std::vector<double> mf2 = fermion_massSq(X);  
+            std::vector<double> nf = fermion_dofs();  
+            std::vector<double> ct = {square(yt) * phi}; 
+            std::vector<double> dct_dx = {square(yt)}; 
+            std::vector<double> dmf2_dx = {square(yt) * phi};
+            for (size_t i = 0; i < nf.size(); ++i) {
+                y -= 0.5 * nf[i] * (dct_dx[i]*Ijf(mf2[i], T,  1) - ct[i]*Ijf(mf2[i], T, 2)*dmf2_dx[i]);
+            }    
+
+            // Boson contribution
+            auto bosons = boson_massSq(X, T, ThermalMassScheme::Exact);
+            auto nb = boson_dofs();
+            const auto& mb2 = bosons.first;
+            auto dbosons_dx = boson_massSq(X, T, ThermalMassScheme::dMdx);
+            const auto& dmb2_dx = dbosons_dx.first;
+
+            std::vector<double> cb(11);
+            std::vector<double> dcb_dx(11);
+            cb[0] = 3.0 * lam1 * phi;           // d(mh2)/d(phi)
+            dcb_dx[0] = 3.0 * lam1;        
+            cb[1] = lam1 * phi;                  // d(mG2)/d(phi)
+            dcb_dx[1] = lam1;
+            cb[2] = lamm * phi;                  // d(mA2)/d(phi)
+            dcb_dx[2] = lamm;
+            cb[3] = lamp * phi;                  // d(mH2)/d(phi)
+            dcb_dx[3] = lamp;
+            cb[4] = lam3 * phi;                  // d(mHpm2)/d(phi)
+            dcb_dx[4] = lam3;
+            cb[5] = 0.5 * square(g) * phi;      // d(mW2L)/d(phi)
+            dcb_dx[5] = 0.5 * square(g);
+            cb[6] = 0.5 * (square(g) + square(gp)) * phi;  // d(mZ2L)/d(phi)
+            dcb_dx[6] = 0.5 * (square(g) + square(gp));
+            cb[7] = 0.0;                         // d(mga2L)/d(phi) = 0
+            dcb_dx[7] = 0.0;
+            cb[8] = 0.5 * square(g) * phi;      // d(mW2T)/d(phi)
+            dcb_dx[8] = 0.5 * square(g);
+            cb[9] = 0.5 * (square(g) + square(gp)) * phi;  // d(mZ2T)/d(phi)
+            dcb_dx[9] = 0.5 * (square(g) + square(gp));
+            cb[10] = 0.0;                        // d(mga2T)/d(phi) = 0
+            dcb_dx[10] = 0.0;
+
+            // Boson contribution: sum(0.5 * nb * cb * Ijb(M2, T, 1))
+            for (size_t i = 0; i < 11; ++i) {
+                y += 0.5 * nb[i] * (dcb_dx[i]*Ijb(mb2[i], T,  1) - cb[i]*Ijb(mb2[i], T, 2)*dmb2_dx[i]);
+            }
+            // UV terms for transverse modes (indices 8, 9, 10 correspond to mW2T, mZ2T, mga2T)
+            y += dcb_dx[8] * UV_term(mb2[8], -2.0, 1) - cb[8] * UV_term(mb2[8], -2.0, 2)*dmb2_dx[8];
+            y += 0.5 * dcb_dx[9] * UV_term(mb2[9], -2.0, 1) - cb[9] * UV_term(mb2[9], -2.0, 2)*dmb2_dx[9];
+            y += 0.5 * dcb_dx[10] * UV_term(mb2[10], -2.0, 1) - cb[10] * UV_term(mb2[10], -2.0, 2)*dmb2_dx[10];
+
+            return y;
+        }
+
 
         Eigen::VectorXd dV_dx(Eigen::VectorXd X, double T) const override {
             switch (ResumScheme) {
@@ -495,7 +806,8 @@ namespace EffectivePotential {
                 case ResummationScheme::PartialDressing: {
                     // Numerical derivative of the analytical first derivative with respect to temperature
                     // Mimics the implementation of Potential::dV_dx but uses dV1dX instead of V
-                    
+                    //return Potential::d2V_dxdt(X, T);
+                    double phi = X[0];
                     Eigen::VectorXd result = Eigen::VectorXd::Zero(X.size());
                     
                     for (int ii = 0; ii < X.size(); ++ii) {
@@ -504,7 +816,29 @@ namespace EffectivePotential {
                             result(ii) += dV1_dX(X, T_shifted, ThermalMassScheme::Exact) * coeff_xy[jj] / h;
                         }
                     }
-                    
+                    if (std::abs(cached_phi - phi) > 1e-4) {
+                        cached_phi = phi;
+                        int n_points = 100;
+                        double t_min = 10.0;
+                        double t_max = 300.0;
+                        alglib::real_1d_array t_arr;
+                        t_arr.setlength(n_points);
+                        for (int i = 0; i < n_points; ++i) {
+                            t_arr[i] = t_min + (t_max - t_min) * i / (n_points - 1);
+                        }
+                        alglib::real_1d_array hessian_arr;
+                        hessian_arr.setlength(n_points);
+                        for (int i = 0; i < n_points; ++i) {
+                            hessian_arr[i] = d2V1_dXdT(X, t_arr[i]);
+                        }
+                        //double rho = 0.1;
+                        alglib::spline1dfitreport rep;
+                        //alglib::spline1dfit(t_arr, hessian_arr, 5, rho, cached_dV1dX_splines_phi, rep);
+                        alglib::spline1dbuildcubic(t_arr, hessian_arr, cached_dV1dX_splines_phi);
+                    }
+                    double dV1PD_dx, d2V1PD_dxdt, d2s;
+                    alglib::spline1ddiff(cached_dV1dX_splines_phi, T, dV1PD_dx, d2V1PD_dxdt, d2s);
+                    result(0) = d2V1PD_dxdt;
                     return result;
                 }
                 default: 
@@ -521,18 +855,44 @@ namespace EffectivePotential {
                 case ResummationScheme::DolanJackiw:
                     return Potential::d2V_dx2(X, T);
                 case ResummationScheme::PartialDressing: {
+                    //return Potential::d2V_dx2(X, T);
                     // Numerical second derivative using analytical first derivative
                     // Mimics the implementation of Potential::d2V_dx2 but uses dV1_dX instead of V
-                    
                     Eigen::MatrixXd hessian = Eigen::MatrixXd::Zero(X.size(), X.size());
                     
-                    for (int ii = 0; ii < X.size(); ++ii) {
-                        Eigen::VectorXd X_shifted = X;
-                        for (int jj = 0; jj < n_h_xy.size(); ++jj) {
-                            X_shifted(ii) = X(ii) + n_h_xy[jj] * h;
-                            hessian(ii, ii) += dV1_dX(X_shifted, T, ThermalMassScheme::Exact) * coeff_xy[jj] / h;
+                    // for (int ii = 0; ii < X.size(); ++ii) {
+                    //     Eigen::VectorXd X_shifted = X;
+                    //     for (int jj = 0; jj < n_h_xy.size(); ++jj) {
+                    //         X_shifted(ii) = X(ii) + n_h_xy[jj] * h;
+                    //         hessian(ii, ii) += dV1_dX(X_shifted, T, ThermalMassScheme::Exact) * coeff_xy[jj] / h;
+                    //     }
+                    // }
+                    if (std::abs(cached_T - T) > 1e-4) {
+                        cached_T = T;
+                        int n_points = 1000;
+                        double x_min = -1.0;
+                        double x_max = 400.0;
+                        alglib::real_1d_array x_arr;
+                        x_arr.setlength(n_points);
+                        for (int i = 0; i < n_points; ++i) {
+                            x_arr[i] = x_min + (x_max - x_min) * i / (n_points - 1);
                         }
+                        alglib::real_1d_array hessian_arr;
+                        hessian_arr.setlength(n_points);
+                        for (int i = 0; i < n_points; ++i) {
+                            Eigen::VectorXd x(1);
+                            x << x_arr[i];
+                            hessian_arr[i] = dV1_dX(x, T, ThermalMassScheme::Exact);
+                        }
+                        //double rho = 0.01;
+                        alglib::spline1dfitreport rep;
+                        //alglib::spline1dfit(x_arr, hessian_arr, 5, rho, cached_dV1dX_splines_T, rep);
+                        alglib::spline1dbuildcubic(x_arr, hessian_arr, cached_dV1dX_splines_T);
                     }
+                    double dV1PD_dx, d2V1PD_dx2, d2s;
+                    alglib::spline1ddiff(cached_dV1dX_splines_T, X[0], dV1PD_dx, d2V1PD_dx2, d2s);
+                    hessian(0, 0) += d2V1PD_dx2;
+                    //hessian(0, 0) += d2V1_dX2(X, T);
                     hessian(0, 0) +=  mu1sq + 1.5 * lam1 * square(X[0]);
                     hessian(0, 0) += delta_mu1sq + 1.5 * delta_lam1 * square(X[0]);
                     
@@ -542,7 +902,6 @@ namespace EffectivePotential {
                     throw std::invalid_argument("unknown ResummationScheme");
             }
         }
-
 
         double V(Eigen::VectorXd X, double T) const override {
             auto bosons_tree = boson_massSq(X, T, ThermalMassScheme::Tree);
@@ -563,25 +922,46 @@ namespace EffectivePotential {
                     return V0(X) + V1(bosons_tree, fermions) + V1CT(X) + V1T(bosons_highT, fermions, T);
                 }
                 case ResummationScheme::PartialDressing: {
-                    using boost::math::quadrature::gauss_kronrod;
-            
-                    double phi = X[0];
-                    
                     // If phi equals reference point phi= 0, return 0
+                    using boost::math::quadrature::gauss_kronrod;
+                    double phi = std::abs(X[0]);
                     if (std::abs(phi) < std::numeric_limits<double>::min()) {
                         return 0.0;
                     }
-                    
-                    // Define the integrand as a lambda function
+
+                    // if (std::abs(cached_T - T) > 1e-4) {
+                    //     cached_T = T;
+                    //     int n_points = 401;
+                    //     double x_min = 0.0;
+                    //     double x_max = 400.0;
+                    //     alglib::real_1d_array x_arr;
+                    //     x_arr.setlength(n_points);
+                    //     for (int i = 0; i < n_points; ++i) {
+                    //         x_arr[i] = x_min + (x_max - x_min) * i / (n_points - 1);
+                    //     }
+                    //     alglib::real_1d_array hessian_arr;
+                    //     hessian_arr.setlength(n_points);
+                    //     for (int i = 0; i < n_points; ++i) {
+                    //         // Define the integrand as a lambda function
+                    //         auto integrand = [&](double x) -> double {
+                    //             Eigen::VectorXd X_point(1);
+                    //             X_point[0] = x;
+                    //             return dV1_dX(X_point, T, ThermalMassScheme::Exact);
+                    //         };
+                    //         // Perform integration using Gauss-Kronrod quadrature
+                    //         // 15-point rule, relative tolerance 1e-4, max iterations 50
+                    //         double V1_integrated = gauss_kronrod<double, 15>::integrate(integrand, 0.0, x_arr[i], 50, 1e-3);
+                    //         hessian_arr[i] = V1_integrated;
+                    //         alglib::spline1dbuildcubic(x_arr, hessian_arr, cached_V_spline);
+                    //     }
+                    // }         
+                    // double V1 = alglib::spline1dcalc(cached_V_spline, X[0]);
                     auto integrand = [&](double x) -> double {
-                        Eigen::VectorXd X_point(1);
-                        X_point[0] = x;
-                        return dV1_dX(X_point, T, ThermalMassScheme::Exact);
-                    };
-                    
-                    // Perform integration using Gauss-Kronrod quadrature
-                    // 15-point rule, relative tolerance 1e-4, max iterations 50
-                    double V1_integrated = gauss_kronrod<double, 15>::integrate(integrand, 0.0, phi, 50, 1e-4);
+                                Eigen::VectorXd X_point(1);
+                                X_point[0] = x;
+                                return dV1_dX(X_point, T, ThermalMassScheme::Exact);
+                            };
+                    double V1_integrated = gauss_kronrod<double, 15>::integrate(integrand, 0.0, phi, 50, 1e-3);
                     return V0(X) + V1CT(X) + V1_integrated;
                 }
                 default: 
@@ -604,12 +984,12 @@ namespace EffectivePotential {
             MB2_vec[12] = sw[1];
             double eq1 = - dV1_dX(vev, 0.0, ThermalMassScheme::Tree) / v0;
             double deltaZ = selfenergy.DPih3_Dp2(square(mh), MB2_vec, square(mt)) ;
-            double se_term = selfenergy.Pih3Pdependent(.0, square(mh), MB2_vec, square(mt), v0) + selfenergy.Pih4(.0, MB2_vec);
+            double se_term = selfenergy.Pih3Pdependent(square(mh), MB2_vec, square(mt), v0) + selfenergy.Pih4(.0, MB2_vec);
             double eq2 = deltaZ * square(mh) - se_term;
             delta_lam1 =  (eq2 - eq1)  / square(v0);
             delta_mu1sq = (3.0*eq1 - eq2) / 2.0;
 
-            delta_lamp = - Gamma_lamp();
+            delta_lamp = - Gamma_hHH();
             delta_mu2sq = - (selfenergy.PiH3(.0, MB2_vec, v0) + selfenergy.PiH4(.0, MB2_vec) + 0.5 * delta_lamp * square(v0));
             delta_lam3 = - 2.0 * (selfenergy.PiHpm3(.0, MB2_vec, v0) + selfenergy.PiHpm4(.0, MB2_vec) + delta_mu2sq) / square(v0);
             delta_lamm = - 2.0 * (selfenergy.PiA3(.0, MB2_vec, v0) + selfenergy.PiA4(.0, MB2_vec) + delta_mu2sq) / square(v0);
@@ -626,60 +1006,48 @@ namespace EffectivePotential {
             double Tmin = 0.0, Tmax = 300.0;
             int n_phi = 400, n_T = 300;
             std::string spline_data_path = "/home/dayun/data"; // Adjust path as needed
-            std::filesystem::create_directories(spline_data_path);
-            
+            std::filesystem::create_directories(spline_data_path);     
             std::string M2_dat_path = spline_data_path + "/M2_" + paramNumber + ".txt";
             std::string bad_points_path = spline_data_path + "/bad_points_" + paramNumber + ".txt";
-
             const int n_mass = 13; // mh2, mG2, mA2, mH2, mHpm2, mW2L, mZ2L, mga2L, mW2T, mZ2T, mga2T, swL, swT
-            const size_t total_points = static_cast<size_t>(n_phi) * n_T;
-            
+            const size_t total_points = static_cast<size_t>(n_phi) * n_T;    
             // Flat storage: index = i_phi * n_T + i_T
             std::vector<double> yM_flat(total_points * n_mass, 0.0);
             //std::vector<bool> valid_points(total_points, false);
-            std::vector<std::tuple<double, double, int, int>> bad_points_list;
-            
+            std::vector<std::tuple<double, double, int, int>> bad_points_list;          
             std::mutex bad_points_mutex;
             std::atomic<int> completed_points(0);
             auto start_time = std::chrono::high_resolution_clock::now();
-
             // Generate grid coordinates
             std::vector<double> xphi(n_phi);
             std::vector<double> xT(n_T);
             for (int i = 0; i < n_phi; ++i) xphi[i] = phimin + i * (phimax - phimin) / (n_phi - 1);
             for (int j = 0; j < n_T; ++j) xT[j] = Tmin + j * (Tmax - Tmin) / (n_T - 1);
-
             // Check if data exists
             if (std::filesystem::exists(M2_dat_path)) {
                 load_mass_data(M2_dat_path, xphi, xT, yM_flat, n_phi, n_T, n_mass);
                 std::cout << "Loaded mass data from " << M2_dat_path << std::endl;
             } else {
                 std::cout << "Generating mass data on grid (" << n_phi << "x" << n_T << ")..." << std::endl;
-
                 // Define the worker lambda to handle a range of grid points
                 // Modified to accept start/end indices and references to grid coordinates
                 auto worker = [this, n_mass, &yM_flat, &bad_points_list, &bad_points_mutex, &completed_points, total_points, start_time](
                     int start_idx, int end_idx, 
                     const std::vector<double>& xphi, const std::vector<double>& xT,
-                    int n_T) {
-                    
+                    int n_T) {                   
                     for (size_t idx = static_cast<size_t>(start_idx); idx < static_cast<size_t>(end_idx); ++idx) {
                         // Convert flat index back to 2D grid coordinates
                         int i = static_cast<int>(idx / n_T);
-                        int j = static_cast<int>(idx % n_T);
-                        
+                        int j = static_cast<int>(idx % n_T);                       
                         double phi = xphi[i];
                         double T = xT[j];
-
                         try {
                             // Solve gap equations
                             auto bosons_init = boson_massSq(Eigen::VectorXd::Constant(1, phi), T, ThermalMassScheme::Tree); // Initial guess
-                            auto bosons_bare = boson_massSq(Eigen::VectorXd::Constant(1, phi), T, ThermalMassScheme::CTterm);
-                            
+                            auto bosons_bare = boson_massSq(Eigen::VectorXd::Constant(1, phi), T, ThermalMassScheme::CTterm);                            
                             // Create a local SelfEnergy instance to call the solver
                             SelfEnergy selfenergy(this->lam2, this->lamL, this->mA, this->mH, this->mHpm);
-                            gapEqResult result = selfenergy.solve_gap_equations(phi, T, 1e-3, bosons_bare, bosons_init, 500); // 1% tolerance
-
+                            gapEqResult result = selfenergy.solve_gap_equations(phi, T, 1e-2, bosons_bare, bosons_init, 500); // 1% tolerance
                             size_t base_idx = idx * n_mass;
                             if (result.success) {
                                 for (int k = 0; k < n_mass; ++k) {
@@ -702,15 +1070,13 @@ namespace EffectivePotential {
                             size_t base_idx = idx * n_mass;
                             for (int k = 0; k < n_mass; ++k) yM_flat[base_idx + k] = std::nan("");
                         }
-
                         int completed = ++completed_points;
                         if (completed % 1000 == 0 || completed == total_points) {
                             auto now = std::chrono::high_resolution_clock::now();
                             std::chrono::duration<double> elapsed = now - start_time;
                             double progress = (static_cast<double>(completed) / total_points) * 100.0;
                             double avg_time = elapsed.count() / completed;
-                            double remaining_seconds = avg_time * (total_points - completed);
-                            
+                            double remaining_seconds = avg_time * (total_points - completed);                          
                             // Helper lambda to format seconds into HH:MM:SS
                             auto format_time = [](double seconds) -> std::string {
                                 int total_secs = static_cast<int>(seconds);
@@ -723,7 +1089,6 @@ namespace EffectivePotential {
                                     << std::setfill('0') << std::setw(2) << s;
                                 return oss.str();
                             };
-
                             std::lock_guard<std::mutex> lock(bad_points_mutex); // Protect cout
                             std::cout << "\rProgress: " << completed << "/" << total_points 
                                       << " (" << std::fixed << std::setprecision(1) << progress << "%) | "
@@ -732,7 +1097,6 @@ namespace EffectivePotential {
                         }
                     }
                 };
-
                 // Launch async tasks with static partitioning
                 std::vector<std::future<void>> futures;
                 // Determine the number of concurrent threads
@@ -742,37 +1106,29 @@ namespace EffectivePotential {
                 }
                 // Ensure at least 1 thread and not more than total points
                 if (max_threads < 1) max_threads = 1;
-                if (max_threads > total_points) max_threads = static_cast<unsigned int>(total_points);
-                
+                if (max_threads > total_points) max_threads = static_cast<unsigned int>(total_points);                
                 std::cout << "Using " << max_threads << " concurrent threads." << std::endl;
-
                 // Calculate points per thread
                 size_t points_per_thread = total_points / max_threads;
                 size_t remainder = total_points % max_threads;
-
                 futures.reserve(max_threads);
-
                 size_t start_idx = 0;
                 for (unsigned int t = 0; t < max_threads; ++t) {
                     // Distribute remainder points one by one to the first 'remainder' threads
                     size_t current_thread_points = points_per_thread + (t < remainder ? 1 : 0);
                     size_t end_idx = start_idx + current_thread_points;
-
                     // Launch async task for this chunk
                     // Capture xphi and xT by reference as they are valid until futures are joined
                     futures.push_back(std::async(std::launch::async, [&worker, start_idx, end_idx, &xphi, &xT, n_T]() {
                         worker(start_idx, end_idx, xphi, xT, n_T);
-                    }));
-                    
+                    }));                   
                     start_idx = end_idx;
-                }
-                
+                }              
                 // Wait for all threads to complete
                 for (auto& f : futures) {
                     f.get();
                 }
                 std::cout << "\nGeneration complete." << std::endl;
-
                 // Save data
                 save_mass_data(M2_dat_path, xphi, xT, yM_flat, n_phi, n_T, n_mass);
                 // Save bad points if any were found during generation or if we want to ensure the file reflects current state
@@ -787,12 +1143,20 @@ namespace EffectivePotential {
                     std::cout << "Saved " << bad_points_list.size() << " bad points to " << bad_points_path << std::endl;
                 }
             }
-
             create_mass_splines(xphi, xT, yM_flat, n_phi, n_T, n_mass);
             //std::cout << "Mass splines has created." << std::endl;
         }
 
     private:
+
+        mutable double cached_T = -1e10;
+        mutable double cached_phi = -1e10;
+        // mutable std::array<alglib::spline1dinterpolant, 13> cached_splines_T;
+        // mutable std::array<alglib::spline1dinterpolant, 13> cached_splines_phi;
+        mutable alglib::spline1dinterpolant cached_dV1dX_splines_T;
+        mutable alglib::spline1dinterpolant cached_dV1dX_splines_phi;
+        //mutable alglib::spline1dinterpolant cached_V_spline;
+
         MassSplines mass_splines_;
 
         
@@ -954,8 +1318,8 @@ namespace EffectivePotential {
                         } else { // Fill bad points
                             // Along T direction (fixed i): take up to 10 points before and after j (max 20 valid)
                             std::vector<double> T_vals, mass_vals;
-                            int start_j = std::max(0, j - 50);
-                            int end_j = std::min(n_T, j + 51);
+                            int start_j = std::max(0, j - 25);
+                            int end_j = std::min(n_T, j + 26);
                             //std::cout << "deal with bad point (i,j) = (" << i << ", " << j << ")" << std::endl;
                             for (int jj = start_j; jj < end_j; ++jj) {
                                 if (!is_bad[i][jj]) {
@@ -980,8 +1344,8 @@ namespace EffectivePotential {
 
                             // Along phi direction (fixed j): take up to 10 points before and after i (max 20 valid)
                             std::vector<double> phi_vals, mass_vals2;
-                            int start_i = std::max(0, i - 50);
-                            int end_i = std::min(n_phi, i + 51);
+                            int start_i = std::max(0, i - 25);
+                            int end_i = std::min(n_phi, i + 26);
                             for (int ii = start_i; ii < end_i; ++ii) {
                                 if (!is_bad[ii][j]) {
                                     phi_vals.push_back(xphi[ii]);
@@ -1025,22 +1389,56 @@ namespace EffectivePotential {
                     }
                 }
 
-                alglib::real_1d_array f_alglib;
-                f_alglib.setcontent(n_phi * n_T, f_flat.data());
+                // alglib::real_1d_array f_alglib;
+                // f_alglib.setcontent(n_phi * n_T, f_flat.data());
+                alglib::real_2d_array xy;
+                xy.setlength(n_phi * n_T, 3); 
+                for (int j = 0; j < n_T; ++j) {
+                    for (int i = 0; i < n_phi; ++i) {
+                        int idx = j * n_phi + i;
+                        xy(idx, 0) = xphi_alglib[i];
+                        xy(idx, 1) = xT_alglib[j];
+                        xy(idx, 2) = f_flat[idx];
+                    }
+                }
 
                 // 3.5 Build bicubic spline (vector version, D=1)
-                alglib::spline2dinterpolant spline2d;
-                try {
-                    alglib::spline2dbuildbicubicv(xphi_alglib, n_phi, xT_alglib, n_T, f_alglib, 1, spline2d);
-                } catch (const alglib::ap_error& e) {
-                    std::cerr << "ALGLIB Error building spline for mass index " << k << ": " << e.msg << std::endl;
-                    // Initialize with a dummy spline or rethrow depending on desired behavior
-                    // Here we initialize with zeros to allow program continuation, but this indicates bad data
-                    alglib::real_1d_array zero_f;
-                    zero_f.setlength(n_phi * n_T);
-                    alglib::spline2dbuildbicubicv(xphi_alglib, n_phi, xT_alglib, n_T, zero_f, 1, spline2d);
-                }
-                mass_splines_.get(k) = spline2d;
+                alglib::ae_int_t d = 1;
+                double lambdav = 0.01;
+                alglib::ae_int_t n_points = n_phi * n_T;
+                alglib::spline2dbuilder state;
+                alglib::spline2dbuildercreate(d, state);
+                alglib::spline2dbuildersetpoints(state, xy, n_points);
+                alglib::spline2dbuildersetgrid(state, 10, 10);
+                alglib::spline2dbuildersetalgoblocklls(state, lambdav);
+
+                alglib::spline2dfitreport rep;
+                alglib::spline2dfit(state, mass_splines_.get(k), rep);
+                
+                //std::cout << "Begin create Mass fit " << k << "." << std::endl;
+                // 准备散乱点 (x, y, z) – 列优先遍历
+                // alglib::real_2d_array xy;
+                // xy.setlength(n_phi * n_T, 3);
+                // for (int j = 0; j < n_T; ++j) {
+                //     for (int i = 0; i < n_phi; ++i) {
+                //         int idx = j * n_phi + i;
+                //         xy[idx][0] = xphi_alglib[i];
+                //         xy[idx][1] = xT_alglib[j];
+                //         xy[idx][2] = f_flat[idx];   // f_flat 已经是列优先
+                //     }
+                // }
+
+                // alglib::rbfmodel rbf;
+                // alglib::rbfreport rep;
+                // alglib::rbfcreate(2, 1, rbf);
+                // alglib::rbfsetpoints(rbf, xy);
+                // double rbase = 100.0;  // 数据范围: phi[0,400], T[0,300]
+                // int nlayers = 3;    // 层数，可调整
+                // alglib::rbfsetalgomultilayer(rbf, rbase, nlayers);
+                // alglib::rbfbuildmodel(rbf, rep);
+
+                // // 存储模型（假设你有一个容器 alglib::rbfmodel 数组）
+                // mass_rbfs_.get(k) = rbf;
                 // Assign
                 // switch (k) {
                 //     case 0:  mass_splines_.Mh2   = spline2d; break;
@@ -1059,20 +1457,38 @@ namespace EffectivePotential {
                 //     default: std::cerr << "Error: unexpected mass index " << k << std::endl;
                 // }
             }
+            std::cout << "Spline built successfully.  " << std::endl;
         }
 
-        double Gamma_lamp() const {
-            double result = 0.0;
-            result += - 0.5 * lamp * lam1 * Ijb(square(mh), 0.0, 2) + 2.0 * lamp * square(lam1*v0) * Ijb(square(mh), 0.0, 3);
-            result += - 0.5 * lam2 * lamm * Ijb(square(mA), 0.0, 2) + 2.0 * lam2 * square(lamm*v0) * Ijb(square(mA), 0.0, 3);
-            result += - 1.5 * lam2 * lamp * Ijb(square(mH), 0.0, 2) + 6.0 * lam2 * square(lamp*v0) * Ijb(square(mH), 0.0, 3);
-            result += - lam2 * lam3 * Ijb(square(mHpm), 0.0, 2) + 2.0 * lam2 * square(lam3*v0) * Ijb(square(mHpm), 0.0, 3);
-            double mZ2 = 0.25 * (square(g) + square(gp)) * square(v0);
-            result -= 0.125 * square(square(g)+ square(gp)) * (3.0*Ijb(mZ2, 0.0, 2) + UV_term(mZ2, -2.0, 2) );
-            double mW2 = 0.25 * square(g) * square(v0);
-            result -= 0.25 * pow_4(g) * (3.0*Ijb(mW2, 0.0, 2) + UV_term(mW2, -2.0, 2) );
+        double Gamma_hHH() const {
+            // Define the integrand using a Lambda expression
+            auto integrand = [this](double x) -> double {
+                double factor = x * (1.0 - x) * square(mh);
+                
+                double mh2star     = square(mh) - factor;
+                double mG2star     =  - factor;
+                double mA2star     = square(mA) - factor;
+                double mH2star     = square(mH) - factor;
+                double mHpm2star   = square(mHpm) - factor;
+                double mW2star    =  0.25*square(g) *square(v0)- factor;
+                double mZ2star    =  0.25*(square(g) + square(gp) )*square(v0) - factor;
 
+                double result = 0.0;
+                result += - 1.5 * lamp * lam1 * Ijb(mh2star, 0.0, 2) ;
+                result += - (0.5 * lamm + lam3) * lam1 * Ijb(mG2star, 0.0, 2) ;
+                result += - 0.5 * lam2 * lamm * Ijb(mA2star, 0.0, 2) ;
+                result += - 1.5 * lam2 * lamp * Ijb(mH2star, 0.0, 2) ;
+                result += - lam2 * lam3 * Ijb(mHpm2star, 0.0, 2) ;
+                result -= 0.125 * square(square(g)+ square(gp)) * (3.0*Ijb(mZ2star, 0.0, 2) + UV_term(mZ2star, -2.0, 2) );
+                result -= 0.25 * pow_4(g) * (3.0*Ijb(mW2star, 0.0, 2) + UV_term(mW2star, -2.0, 2) );
+
+                //std::cout << "DEBUG: Gamma_hHH() result = " << result << std::endl;
+                return result;
+            };
+            
+            double result = boost::math::quadrature::gauss_kronrod<double, 15>::integrate(integrand, 0.0, 1.0, 20, 1e-4);
             return result;
+
         }
 
         // constants
@@ -1280,7 +1696,7 @@ namespace EffectivePotential {
                 double RG_scale_4D = M_PI * T;
                 double Lb = 2.*log(M_PI) + 2. * EulerGamma - 2. * log(4 * M_PI);
                 double Lf = Lb + 4. * log(2.);
-                double gpsq, gsq, gssq, lam1, lam2, lam3, lam4, lam5, yt, mu1sq, mu2sq;
+                double gpsq, gsq, gssq, lam1, lam2, lam3, lam4, lam5, yt, mu1sq, mu2sq; 
 
                 if ( running_flag ) {
                     gpsq = alglib::spline1dcalc(RGEs[0], RG_scale_4D);
@@ -1319,6 +1735,7 @@ namespace EffectivePotential {
                     8. * (-16. * square(M_PI) * lam1 + 6. * Lf * square(yt) * (-square(yt) + lam1) +
                         Lb * (6. * square(lam1) + 2. * square(lam3) + 2. * lam3 * lam4 + square(lam4) + square(lam5)))
                 );
+                
                 double lam23d = -1. / (128. * square(M_PI)) * T * (
                     square(gpsq) * (-2. + 3. * Lb) + square(gsq) * (-6. + 9. * Lb) - 12. * gpsq * Lb * lam2 -
                     128. * square(M_PI) * lam2 +
@@ -1341,40 +1758,40 @@ namespace EffectivePotential {
                 //-----------------------------------------------
                 // Mixed temporal-scalar couplings
                 //-----------------------------------------------
-                double lambdaVLL_1 = (square(gsq) * T) / (4. * square(M_PI));
-                double lambdaVLL_2 = -(gsq * gpsq * T) / (4. * square(M_PI));
-                double lambdaVLL_3 = -(181. * square(gpsq) * T) / (36. * square(M_PI));
-                double lambdaVLL_4 = -(3. * gsq * gssq * T) / (4. * square(M_PI));  
-                double lambdaVLL_5 = -(11. * gpsq * gssq * T) / (12. * square(M_PI));
+                double lambdaVLL_1 = (square(gsq) * T) / (4. * square(M_PI));// 2*lam-WWWW
+                double lambdaVLL_2 = -(gsq * gpsq * T) / (4. * square(M_PI));// lam-WWBB
+                double lambdaVLL_3 = -(181. * square(gpsq) * T) / (36. * square(M_PI));// 6*lam-BBBB
+                double lambdaVLL_4 = -(3. * gsq * gssq * T) / (4. * square(M_PI)); // lam-WWGG 
+                double lambdaVLL_5 = -(11. * gpsq * gssq * T) / (12. * square(M_PI)); // lam-BBGG
                 //double lambdaVLL_6 = -(sqrt(gssq* gpsq)  * gssq * T) / (4. * square(M_PI));
-                double lambdaVLL_7 = (square(gssq) * T) / (4. * square(M_PI));
-                double lambdaVL_1 = -((gssq * square(yt) * T) / (4. * square(M_PI)));
+                double lambdaVLL_7 = (square(gssq) * T) / (4. * square(M_PI));// 2*lam-GGGG
+                double lambdaVL_1 = -((gssq * square(yt) * T) / (4. * square(M_PI)));// lam-phi-phi-GG
                 double lambdaVL_2 = (sqrt(gsq) * sqrt(gpsq) * T) / (192. * square(M_PI)) * (
                     gsq * (5. + 21. * Lb - 12. * Lf) - 
                     gpsq * (-21. + Lb + 20. * Lf) + 
                     12. * (8. * square(M_PI) + square(yt) + lam1 + lam4)
-                );
+                ); // lam-phi-phi-BW
                 double lambdaVL_3 = (sqrt(gsq) * sqrt(gpsq) * T) / (192. * square(M_PI)) * (
                     gsq * (5. + 21. * Lb - 12. * Lf) - 
                     gpsq * (-21. + Lb + 20. * Lf) + 
                     12. * (8. * square(M_PI) + lam2 + lam4)
-                );  
+                );  // lam-eta-eta-BW
                 double lambdaVL_4 = -1. / (192. * square(M_PI)) * gpsq * T * (
                     -9. * gsq + gpsq * (-39. + 2. * Lb + 40. * Lf) - 
                     4. * (24. * square(M_PI) - 17. * square(yt) + 9. * lam1 + 6. * lam3 + 3. * lam4)
-                );
+                ); // lam-phi-phi-BB
                 double lambdaVL_5 = -1. / (192. * square(M_PI)) * gpsq * T * (
                     -9. * gsq + gpsq * (-39. + 2. * Lb + 40. * Lf) - 
                     12. * (8. * square(M_PI) + 3. * lam2 + 2. * lam3 + lam4)
-                );
+                ); // lam-eta-eta-BB
                 double lambdaVL_6 = (gsq * T) / (192. * square(M_PI)) * (
                     gsq * (73. + 42. * Lb - 24. * Lf) + 
                     3. * (gpsq + 4. * (8. * square(M_PI) - 3. * square(yt) + 3. * lam1 + 2. * lam3 + lam4))
-                );
+                ); // lam-phi-phi-WW
                 double lambdaVL_7 = (gsq * T) / (192. * square(M_PI)) * (
                     gsq * (73. + 42. * Lb - 24. * Lf) + 
                     3. * (gpsq + 4. * (8. * square(M_PI) + 3. * lam2 + 2. * lam3 + lam4))
-                );
+                ); // lam-eta-eta-WW
                 //-----------------------------------------------
                 // 3D mass
                 //-----------------------------------------------
@@ -1495,7 +1912,7 @@ namespace EffectivePotential {
                     ) - 
                     12. * log(RG_scale_3D / RG_scale_4D) * (
                         33. * square(gsq3d) - 7. * square(gpsq3d) + 
-                        8. * gsq3d * (3. * lam23d + 2. * lam33d + lam43d) - 
+                        8. * gpsq3d * (3. * lam23d + 2. * lam33d + lam43d) - 
                         8. * (
                             6. * square(lam23d) + 4. * square(lam33d) + 
                             4. * lam33d * lam43d + 4. * square(lam43d) + 
@@ -1536,11 +1953,10 @@ namespace EffectivePotential {
                 double musqU1 = musqU1_LO + musqU1_NLO;
                 double musqSU2 = musqSU2_LO + musqSU2_NLO;
                 double musqSU3 = musqSU3_LO + musqSU3_NLO;
-
                 if ( matching_flag == 0 ) {
-                    return {gpsq*T, gsq*T, gssq*T, lam1*T, lam2*T, lam33d*T, lam43d*T, lam53d*T, mu1sq3d_LO, mu2sq3d_LO};
+                    return {gpsq*T, gsq*T, gssq*T, lam1*T, mu1sq3d_LO, lam2*T, lam3*T, lam4*T, lam5*T, mu2sq3d_LO};
                 } else if ( matching_flag == 1 ) {
-                    return {gpsq3d, gsq3d, gssq3d, lam13d, lam23d, lam33d, lam43d, lam53d, mu1sq3d, mu2sq3d};
+                    return {gpsq3d, gsq3d, gssq3d, lam13d, mu1sq3d, lam23d, lam33d, lam43d, lam53d, mu2sq3d};
                 }
                 //---------------------------------
                 // integrate out temporal scalar
@@ -1549,104 +1965,47 @@ namespace EffectivePotential {
                 double RG_scale_3DUS = gsq * T;
 
                 // integrate out the second doublet
-                // double lam13dUS = lam13d - (1. / (16. * M_PI)) * (
-                //     (2. * (2. * square(lam33d) + 2. * lam33d * lam43d + square(lam43d) + square(lam53d))) / sqrt(mu2sq3d) + 
-                //     (8. * square(lambdaVL_1)) / sqrt(musqSU3) + 
-                //     (4. * square(lambdaVL_2)) / (sqrt(musqSU2) + sqrt(musqU1)) + 
-                //     square(lambdaVL_4) / sqrt(musqU1) + 
-                //     (3. * square(lambdaVL_6)) / sqrt(musqSU2)
-                // );
-                // std::cout << "lam33d: " << lam33d << std::endl;
-                // std::cout << "lam43d: " << lam43d << std::endl;
-                // std::cout << "lam53d: " << lam53d << std::endl;
-                // std::cout << "mu2sq3d: " << mu2sq3d << std::endl;
-
-                // double gsq3dUS = gsq3d - (square(gsq3d) * (1. / sqrt(mu2sq3d) + 2. / sqrt(musqSU2))) / (48. * M_PI);
-                // double gpsq3dUS = gpsq3d - square(gpsq3d) / (48. * M_PI * sqrt(mu2sq3d));
-                // double gssq3dUS = gssq3d - square(gssq3d) / (16. * M_PI * sqrt(musqSU3));
-                // // masses
-                // double mu1sq3dUS_LO = mu1sq3d - (1. / (8. * M_PI)) * (
-                //     4. * lam33d * sqrt(mu2sq3d) + 
-                //     2. * lam43d * sqrt(mu2sq3d) + 
-                //     8. * sqrt(musqSU3) * lambdaVL_1 + 
-                //     sqrt(musqU1) * lambdaVL_4 + 
-                //     3. * sqrt(musqSU2) * lambdaVL_6
-                // );
-                // double mu1sq3dUS_NLO = 1. / (128. * square(M_PI)) * (
-                //     6. * gsq3d * lam33d + 2. * gpsq3d * lam33d + 
-                //     24. * lam23d * lam33d - 8. * square(lam33d) + 
-                //     3. * gsq3d * lam43d + gpsq3d * lam43d + 
-                //     12. * lam23d * lam43d - 8. * lam33d * lam43d - 
-                //     8. * square(lam43d) - 12. * square(lam53d) - 
-                //     (3. * square(gsq3d) + square(gpsq3d) - 
-                //     12. * gsq3d * (2. * lam33d + lam43d) - 
-                //     4. * gpsq3d * (2. * lam33d + lam43d) + 
-                //     8. * (2. * square(lam33d) + 2. * lam33d * lam43d + 
-                //         2. * square(lam43d) + 3. * square(lam53d))) * log(RG_scale_3D / (2. * sqrt(mu2sq3d))) + 
-                //     48. * gsq3d * lambdaVL_1 + 
-                //     192. * gsq3d * log(RG_scale_3D / (2. * sqrt(musqSU3))) * lambdaVL_1 - 
-                //     16. * square(lambdaVL_1) - 
-                //     32. * log(RG_scale_3D / (2. * sqrt(musqSU3))) * square(lambdaVL_1) - 
-                //     12. * square(lambdaVL_2) - 
-                //     24. * log(RG_scale_3D / (sqrt(musqSU2) + sqrt(musqU1))) * square(lambdaVL_2) - 
-                //     2. * square(lambdaVL_4) - 
-                //     4. * log(RG_scale_3D / (2. * sqrt(musqU1))) * square(lambdaVL_4) + 
-                //     12. * gsq3d * lambdaVL_6 - 6. * square(lambdaVL_6) - 
-                //     6. * log(RG_scale_3D / (2. * sqrt(musqSU2))) * (square(gsq3d) - 8. * gsq3d * lambdaVL_6 + 
-                //     2. * square(lambdaVL_6)) + 
-                //     15. * lambdaVL_6 * lambdaVLL_1 + 
-                //     (3. * sqrt(musqSU2) * lambdaVL_4 * lambdaVLL_2) / sqrt(musqU1) + 
-                //     (3. * sqrt(musqU1) * lambdaVL_6 * lambdaVLL_2) / sqrt(musqSU2) + 
-                //     lambdaVL_4 * lambdaVLL_3 + 
-                //     (24. * sqrt(musqSU2) * lambdaVL_1 * lambdaVLL_4) / sqrt(musqSU3) + 
-                //     (24. * sqrt(musqSU3) * lambdaVL_6 * lambdaVLL_4) / sqrt(musqSU2) + 
-                //     (8. * sqrt(musqU1) * lambdaVL_1 * lambdaVLL_5) / sqrt(musqSU3) + 
-                //     (8. * sqrt(musqSU3) * lambdaVL_4 * lambdaVLL_5) / sqrt(musqU1) + 
-                //     80. * lambdaVL_1 * lambdaVLL_7
-                // );
-                // double mu1sq3dUS_beta = 1. / (256. * square(M_PI)) * (
-                //     -51. * square(gsq3dUS) + 
-                //     5. * square(gpsq3dUS) + 
-                //     18. * gsq3dUS * (gpsq3dUS - 4. * lam13dUS) - 
-                //     24. * gpsq3dUS * lam13dUS + 
-                //     48. * square(lam13dUS)
-                // );
-                // double mu1Sq3dUS = mu1sq3dUS_LO + mu1sq3dUS_NLO + mu1sq3dUS_beta * log(RG_scale_3DUS / RG_scale_3D);
-
                 double lam13dUS = lam13d - (1. / (16. * M_PI)) * (
-                    (8. * lambdaVL_1 * lambdaVL_1) / sqrt(musqSU3) + 
-                    (4. * lambdaVL_2 * lambdaVL_2) / (sqrt(musqSU2) + sqrt(musqU1)) + 
-                    (lambdaVL_4 * lambdaVL_4) / sqrt(musqU1) + 
-                    (3. * lambdaVL_6 * lambdaVL_6) / sqrt(musqSU2)
+                    (2. * (2. * square(lam33d) + 2. * lam33d * lam43d + square(lam43d) + square(lam53d))) / sqrt(mu2sq3d) + 
+                    (8. * square(lambdaVL_1)) / sqrt(musqSU3) + 
+                    (4. * square(lambdaVL_2)) / (sqrt(musqSU2) + sqrt(musqU1)) + 
+                    square(lambdaVL_4) / sqrt(musqU1) + 
+                    (3. * square(lambdaVL_6)) / sqrt(musqSU2)
                 );
-                double lam23dUS = lam23d - (1. / (16. * M_PI)) * (
-                    (4. * lambdaVL_3 * lambdaVL_3) / (sqrt(musqSU2) + sqrt(musqU1)) + 
-                    (lambdaVL_5 * lambdaVL_5) / sqrt(musqU1) + 
-                    (3. * lambdaVL_7 * lambdaVL_7) / sqrt(musqSU2)
-                );
-                double lam33dUS = lam33d - (1. / (16. * M_PI)) * (
-                    - (4. * lambdaVL_2 * lambdaVL_3) / (sqrt(musqSU2) + sqrt(musqU1)) + 
-                    (lambdaVL_4 * lambdaVL_5) / sqrt(musqU1) + 
-                    (3. * lambdaVL_6 * lambdaVL_7) / sqrt(musqSU2)
-                );
-                double lam43dUS = lam43d - (lambdaVL_2 * lambdaVL_3) / (2. * M_PI * (sqrt(musqSU2) + sqrt(musqU1)));
-                double lam53dUS = lam53d;
-                double gsq3dUS = gsq3d - (gsq3d * gsq3d * gsq3d) / (24. * M_PI * sqrt(musqSU2));
-                double gpsq3dUS = gpsq3d;
-                double gssq3dUS = gssq3d - (gssq3d * gssq3d * gssq3d) / (16. * M_PI * sqrt(musqSU3));
 
-                double mu1Sq3dUS_LO = mu1sq3d - (8. * sqrt(musqSU3) * lambdaVL_1 + sqrt(musqU1) * lambdaVL_4 + 3. * sqrt(musqSU2) * lambdaVL_6) / (8. * M_PI);
-                double mu1Sq3dUS_NLO = (1. / (128. * square(M_PI))) * (
-                    48. * gssq3d * lambdaVL_1 + 
-                    32. * log(RG_scale_3D / (2. * sqrt(musqSU3))) * (6. * gssq3d - lambdaVL_1) * lambdaVL_1 - 
-                    16. * lambdaVL_1 * lambdaVL_1 - 
-                    12. * lambdaVL_2 * lambdaVL_2 - 
-                    24. * log(RG_scale_3D / (sqrt(musqSU2) + sqrt(musqU1))) * lambdaVL_2 * lambdaVL_2 - 
-                    2. * lambdaVL_4 * lambdaVL_4 - 
-                    4. * log(RG_scale_3D / (2. * sqrt(musqU1))) * lambdaVL_4 * lambdaVL_4 + 
-                    12. * gsq3d * lambdaVL_6 - 
-                    6. * lambdaVL_6 * lambdaVL_6 - 
-                    6. * log(RG_scale_3D / (2. * sqrt(musqSU2))) * (gsq3d * gsq3d - 8. * gsq3d * lambdaVL_6 + 2. * lambdaVL_6 * lambdaVL_6) + 
+                double gsq3dUS = gsq3d - (square(gsq3d) * (1. / sqrt(mu2sq3d) + 2. / sqrt(musqSU2))) / (48. * M_PI);
+                double gpsq3dUS = gpsq3d - square(gpsq3d) / (48. * M_PI * sqrt(mu2sq3d));
+                double gssq3dUS = gssq3d - square(gssq3d) / (16. * M_PI * sqrt(musqSU3));
+                // masses
+                double mu1sq3dUS_LO = mu1sq3d - (1. / (8. * M_PI)) * (
+                    4. * lam33d * sqrt(mu2sq3d) + 
+                    2. * lam43d * sqrt(mu2sq3d) + 
+                    8. * sqrt(musqSU3) * lambdaVL_1 + 
+                    sqrt(musqU1) * lambdaVL_4 + 
+                    3. * sqrt(musqSU2) * lambdaVL_6
+                );
+                double mu1sq3dUS_NLO = 1. / (128. * square(M_PI)) * (
+                    6. * gsq3d * lam33d + 2. * gpsq3d * lam33d + 
+                    24. * lam23d * lam33d - 8. * square(lam33d) + 
+                    3. * gsq3d * lam43d + gpsq3d * lam43d + 
+                    12. * lam23d * lam43d - 8. * lam33d * lam43d - 
+                    8. * square(lam43d) - 12. * square(lam53d) - 
+                    (3. * square(gsq3d) + square(gpsq3d) - 
+                    12. * gsq3d * (2. * lam33d + lam43d) - 
+                    4. * gpsq3d * (2. * lam33d + lam43d) + 
+                    8. * (2. * square(lam33d) + 2. * lam33d * lam43d + 
+                        2. * square(lam43d) + 3. * square(lam53d))) * log(RG_scale_3D / (2. * sqrt(mu2sq3d))) + 
+                    48. * gsq3d * lambdaVL_1 + 
+                    192. * gsq3d * log(RG_scale_3D / (2. * sqrt(musqSU3))) * lambdaVL_1 - 
+                    16. * square(lambdaVL_1) - 
+                    32. * log(RG_scale_3D / (2. * sqrt(musqSU3))) * square(lambdaVL_1) - 
+                    12. * square(lambdaVL_2) - 
+                    24. * log(RG_scale_3D / (sqrt(musqSU2) + sqrt(musqU1))) * square(lambdaVL_2) - 
+                    2. * square(lambdaVL_4) - 
+                    4. * log(RG_scale_3D / (2. * sqrt(musqU1))) * square(lambdaVL_4) + 
+                    12. * gsq3d * lambdaVL_6 - 6. * square(lambdaVL_6) - 
+                    6. * log(RG_scale_3D / (2. * sqrt(musqSU2))) * (square(gsq3d) - 8. * gsq3d * lambdaVL_6 + 
+                    2. * square(lambdaVL_6)) + 
                     15. * lambdaVL_6 * lambdaVLL_1 + 
                     (3. * sqrt(musqSU2) * lambdaVL_4 * lambdaVLL_2) / sqrt(musqU1) + 
                     (3. * sqrt(musqU1) * lambdaVL_6 * lambdaVLL_2) / sqrt(musqSU2) + 
@@ -1657,47 +2016,101 @@ namespace EffectivePotential {
                     (8. * sqrt(musqSU3) * lambdaVL_4 * lambdaVLL_5) / sqrt(musqU1) + 
                     80. * lambdaVL_1 * lambdaVLL_7
                 );
-                double mu1Sq3dUS_beta = (1. / (256. * square(M_PI))) * (
-                    -45. * gsq3dUS * gsq3dUS + 
-                    7. * gpsq3dUS * gpsq3dUS + 
-                    48. * lam23dUS * lam23dUS - 
-                    8. * gpsq3dUS * (3. * lam23dUS + 2. * lam33dUS + lam43dUS) + 
-                    32. * (lam33dUS * lam33dUS + lam33dUS * lam43dUS + lam43dUS * lam43dUS) + 
-                    6. * gsq3dUS * (3. * gpsq3dUS - 4. * (3. * lam23dUS + 2. * lam33dUS + lam43dUS)) + 
-                    48. * lam53dUS * lam53dUS
+                double mu1sq3dUS_beta = 1. / (256. * square(M_PI)) * (
+                    -51. * square(gsq3dUS) + 
+                    5. * square(gpsq3dUS) + 
+                    18. * gsq3dUS * (gpsq3dUS - 4. * lam13dUS) - 
+                    24. * gpsq3dUS * lam13dUS + 
+                    48. * square(lam13dUS)
                 );
-                double mu1Sq3dUS = mu1Sq3dUS_LO + mu1Sq3dUS_NLO + mu1Sq3dUS_beta * log(RG_scale_3DUS / RG_scale_3D);
-                double mu2sq3dUS_LO = mu2sq3d - (sqrt(musqU1) * lambdaVL_5 + 3. * sqrt(musqSU2) * lambdaVL_7) / (8. * M_PI);
-                double mu2sq3dUS_NLO = (1. / (128. * square(M_PI))) * (
-                    -12. * lambdaVL_3 * lambdaVL_3 - 
-                    24. * log(RG_scale_3D / (sqrt(musqSU2) + sqrt(musqU1))) * lambdaVL_3 * lambdaVL_3 - 
-                    2. * lambdaVL_5 * lambdaVL_5 - 
-                    4. * log(RG_scale_3D / (2. * sqrt(musqU1))) * lambdaVL_5 * lambdaVL_5 + 
-                    12. * gsq3d * lambdaVL_7 - 
-                    6. * lambdaVL_7 * lambdaVL_7 - 
-                    6. * log(RG_scale_3D / (2. * sqrt(musqSU2))) * (gsq3d * gsq3d - 8. * gsq3d * lambdaVL_7 + 2. * lambdaVL_7 * lambdaVL_7) + 
-                    15. * lambdaVL_7 * lambdaVLL_1 + 
-                    (3. * sqrt(musqSU2) * lambdaVL_5 * lambdaVLL_2) / sqrt(musqU1) + 
-                    (3. * sqrt(musqU1) * lambdaVL_7 * lambdaVLL_2) / sqrt(musqSU2) + 
-                    lambdaVL_5 * lambdaVLL_3 + 
-                    (24. * sqrt(musqSU3) * lambdaVL_7 * lambdaVLL_4) / sqrt(musqSU2) + 
-                    (8. * sqrt(musqSU3) * lambdaVL_5 * lambdaVLL_5) / sqrt(musqU1)
-                );
-                double mu2sq3dUS_beta = (1. / (256. * square(M_PI))) * (
-                    -45. * gsq3dUS * gsq3dUS + 
-                    7. * gpsq3dUS * gpsq3dUS + 
-                    48. * lam13dUS * lam13dUS - 
-                    8. * gpsq3dUS * (3. * lam13dUS + 2. * lam33dUS + lam43dUS) + 
-                    32. * (lam33dUS * lam33dUS + lam33dUS * lam43dUS + lam43dUS * lam43dUS) + 
-                    6. * gsq3dUS * (3. * gpsq3dUS - 4. * (3. * lam13dUS + 2. * lam33dUS + lam43dUS)) + 
-                    48. * lam53dUS * lam53dUS
-                );
-                double mu2sq3dUS = mu2sq3dUS_LO + mu2sq3dUS_NLO + mu2sq3dUS_beta * log(RG_scale_3DUS / RG_scale_3D);
+                double mu1Sq3dUS = mu1sq3dUS_LO + mu1sq3dUS_NLO + mu1sq3dUS_beta * log(RG_scale_3DUS / RG_scale_3D);
+
+                // double lam13dUS = lam13d - (1. / (16. * M_PI)) * (
+                //     (8. * lambdaVL_1 * lambdaVL_1) / sqrt(musqSU3) + 
+                //     (4. * lambdaVL_2 * lambdaVL_2) / (sqrt(musqSU2) + sqrt(musqU1)) + 
+                //     (lambdaVL_4 * lambdaVL_4) / sqrt(musqU1) + 
+                //     (3. * lambdaVL_6 * lambdaVL_6) / sqrt(musqSU2)
+                // );
+                // double lam23dUS = lam23d - (1. / (16. * M_PI)) * (
+                //     (4. * lambdaVL_3 * lambdaVL_3) / (sqrt(musqSU2) + sqrt(musqU1)) + 
+                //     (lambdaVL_5 * lambdaVL_5) / sqrt(musqU1) + 
+                //     (3. * lambdaVL_7 * lambdaVL_7) / sqrt(musqSU2)
+                // );
+                // double lam33dUS = lam33d - (1. / (16. * M_PI)) * (
+                //     - (4. * lambdaVL_2 * lambdaVL_3) / (sqrt(musqSU2) + sqrt(musqU1)) + 
+                //     (lambdaVL_4 * lambdaVL_5) / sqrt(musqU1) + 
+                //     (3. * lambdaVL_6 * lambdaVL_7) / sqrt(musqSU2)
+                // );
+                // double lam43dUS = lam43d - (lambdaVL_2 * lambdaVL_3) / (2. * M_PI * (sqrt(musqSU2) + sqrt(musqU1)));
+                // double lam53dUS = lam53d;
+                // double gsq3dUS = gsq3d - (gsq3d * gsq3d) / (24. * M_PI * sqrt(musqSU2));
+                // double gpsq3dUS = gpsq3d;
+                // double gssq3dUS = gssq3d - (gssq3d * gssq3d) / (16. * M_PI * sqrt(musqSU3));
+
+                // double mu1Sq3dUS_LO = mu1sq3d - (8. * sqrt(musqSU3) * lambdaVL_1 + sqrt(musqU1) * lambdaVL_4 + 3. * sqrt(musqSU2) * lambdaVL_6) / (8. * M_PI);
+                // double mu1Sq3dUS_NLO = (1. / (128. * square(M_PI))) * (
+                //     48. * gssq3d * lambdaVL_1 + 
+                //     32. * log(RG_scale_3D / (2. * sqrt(musqSU3))) * (6. * gssq3d - lambdaVL_1) * lambdaVL_1 - 
+                //     16. * lambdaVL_1 * lambdaVL_1 - 
+                //     12. * lambdaVL_2 * lambdaVL_2 - 
+                //     24. * log(RG_scale_3D / (sqrt(musqSU2) + sqrt(musqU1))) * lambdaVL_2 * lambdaVL_2 - 
+                //     2. * lambdaVL_4 * lambdaVL_4 - 
+                //     4. * log(RG_scale_3D / (2. * sqrt(musqU1))) * lambdaVL_4 * lambdaVL_4 + 
+                //     12. * gsq3d * lambdaVL_6 - 
+                //     6. * lambdaVL_6 * lambdaVL_6 - 
+                //     6. * log(RG_scale_3D / (2. * sqrt(musqSU2))) * (gsq3d * gsq3d - 8. * gsq3d * lambdaVL_6 + 2. * lambdaVL_6 * lambdaVL_6) + 
+                //     15. * lambdaVL_6 * lambdaVLL_1 + 
+                //     (3. * sqrt(musqSU2) * lambdaVL_4 * lambdaVLL_2) / sqrt(musqU1) + 
+                //     (3. * sqrt(musqU1) * lambdaVL_6 * lambdaVLL_2) / sqrt(musqSU2) + 
+                //     lambdaVL_4 * lambdaVLL_3 + 
+                //     (24. * sqrt(musqSU2) * lambdaVL_1 * lambdaVLL_4) / sqrt(musqSU3) + 
+                //     (24. * sqrt(musqSU3) * lambdaVL_6 * lambdaVLL_4) / sqrt(musqSU2) + 
+                //     (8. * sqrt(musqU1) * lambdaVL_1 * lambdaVLL_5) / sqrt(musqSU3) + 
+                //     (8. * sqrt(musqSU3) * lambdaVL_4 * lambdaVLL_5) / sqrt(musqU1) + 
+                //     80. * lambdaVL_1 * lambdaVLL_7
+                // );
+                // double mu1Sq3dUS_beta = (1. / (256. * square(M_PI))) * (
+                //     -45. * gsq3dUS * gsq3dUS + 
+                //     7. * gpsq3dUS * gpsq3dUS + 
+                //     48. * lam23dUS * lam23dUS - 
+                //     8. * gpsq3dUS * (3. * lam23dUS + 2. * lam33dUS + lam43dUS) + 
+                //     32. * (lam33dUS * lam33dUS + lam33dUS * lam43dUS + lam43dUS * lam43dUS) + 
+                //     6. * gsq3dUS * (3. * gpsq3dUS - 4. * (3. * lam23dUS + 2. * lam33dUS + lam43dUS)) + 
+                //     48. * lam53dUS * lam53dUS
+                // );
+                // double mu1Sq3dUS = mu1Sq3dUS_LO + mu1Sq3dUS_NLO + mu1Sq3dUS_beta * log(RG_scale_3DUS / RG_scale_3D);
+                // double mu2sq3dUS_LO = mu2sq3d - (sqrt(musqU1) * lambdaVL_5 + 3. * sqrt(musqSU2) * lambdaVL_7) / (8. * M_PI);
+                // double mu2sq3dUS_NLO = (1. / (128. * square(M_PI))) * (
+                //     -12. * lambdaVL_3 * lambdaVL_3 - 
+                //     24. * log(RG_scale_3D / (sqrt(musqSU2) + sqrt(musqU1))) * lambdaVL_3 * lambdaVL_3 - 
+                //     2. * lambdaVL_5 * lambdaVL_5 - 
+                //     4. * log(RG_scale_3D / (2. * sqrt(musqU1))) * lambdaVL_5 * lambdaVL_5 + 
+                //     12. * gsq3d * lambdaVL_7 - 
+                //     6. * lambdaVL_7 * lambdaVL_7 - 
+                //     6. * log(RG_scale_3D / (2. * sqrt(musqSU2))) * (gsq3d * gsq3d - 8. * gsq3d * lambdaVL_7 + 2. * lambdaVL_7 * lambdaVL_7) + 
+                //     15. * lambdaVL_7 * lambdaVLL_1 + 
+                //     (3. * sqrt(musqSU2) * lambdaVL_5 * lambdaVLL_2) / sqrt(musqU1) + 
+                //     (3. * sqrt(musqU1) * lambdaVL_7 * lambdaVLL_2) / sqrt(musqSU2) + 
+                //     lambdaVL_5 * lambdaVLL_3 + 
+                //     (24. * sqrt(musqSU3) * lambdaVL_7 * lambdaVLL_4) / sqrt(musqSU2) + 
+                //     (8. * sqrt(musqSU3) * lambdaVL_5 * lambdaVLL_5) / sqrt(musqU1)
+                // );
+                // double mu2sq3dUS_beta = (1. / (256. * square(M_PI))) * (
+                //     -45. * gsq3dUS * gsq3dUS + 
+                //     7. * gpsq3dUS * gpsq3dUS + 
+                //     48. * lam13dUS * lam13dUS - 
+                //     8. * gpsq3dUS * (3. * lam13dUS + 2. * lam33dUS + lam43dUS) + 
+                //     32. * (lam33dUS * lam33dUS + lam33dUS * lam43dUS + lam43dUS * lam43dUS) + 
+                //     6. * gsq3dUS * (3. * gpsq3dUS - 4. * (3. * lam13dUS + 2. * lam33dUS + lam43dUS)) + 
+                //     48. * lam53dUS * lam53dUS
+                // );
+                // double mu2sq3dUS = mu2sq3dUS_LO + mu2sq3dUS_NLO + mu2sq3dUS_beta * log(RG_scale_3DUS / RG_scale_3D);
 
                 if ( matching_flag == 2 ) {
-                    return {gpsq3dUS, gsq3dUS, gssq3dUS, lam13dUS, lam23dUS, lam33dUS, lam43dUS, lam53dUS, mu1Sq3dUS, mu2sq3dUS};
+                    //return {gpsq3dUS, gsq3dUS, gssq3dUS, lam13dUS, lam23dUS, lam33dUS, lam43dUS, lam53dUS, mu1Sq3dUS, mu2sq3dUS};
+                    return {gpsq3dUS, gsq3dUS, gssq3dUS, lam13dUS, mu1Sq3dUS, .0, .0, .0, .0, .0};
                 }
-                return {0., 0., 0., 0., 0., 0., 0., 0., 0., 0.};
+                return {0., 0., 0., 0., 0., 0., 0., 0., 0.0, 0.0};
             }
 
             double V(Eigen::VectorXd X, double T) const override {
@@ -1707,16 +2120,18 @@ namespace EffectivePotential {
                 std::complex<double> gsq(par[1], 0);
                 std::complex<double> gssq(par[2], 0);
                 std::complex<double> lam1(par[3], 0);
-                std::complex<double> lam2(par[4], 0);
-                std::complex<double> lam3(par[5], 0);
-                std::complex<double> lam4(par[6], 0);
-                std::complex<double> lam5(par[7], 0);
-                std::complex<double> mu1sq(par[8], 0);
+                //std::cout << "lam1 = " << lam1 << std::endl;
+                std::complex<double> mu1sq(par[4], 0);
+                std::complex<double> lam2(par[5], 0);
+                std::complex<double> lam3(par[6], 0);
+                std::complex<double> lam4(par[7], 0);
+                std::complex<double> lam5(par[8], 0);
                 std::complex<double> mu2sq(par[9], 0);
 
                 std::complex<double> phi(X[0]/sqrt(T + 1e-15),0);
 
                 std::complex<double> veffLO = 0.5* pow(phi,2.)*mu1sq + 0.125*pow(phi,4.)*lam1 ;
+                //std::cout << "mu1sq = " << mu1sq << std::endl;
 
                 if ( potential_flag == 0 ) {
                     return T * veffLO.real();
@@ -1727,11 +2142,18 @@ namespace EffectivePotential {
                     pow(mu1sq + 1.5 * lam1 * phi * phi, 1.5) / (12. * M_PI) - 
                     pow(mu2sq + 0.5 * lam3 * phi * phi, 1.5) / (6. * M_PI) - 
                     pow(mu2sq + 0.5 * (lam3 + lam4 - lam5) * phi * phi, 1.5) / (12. * M_PI) - 
-                    pow(mu2sq + 0.5 * (lam3 + lam4 + lam5) * phi * phi, 1.5) / (12. * M_PI) + 
-                    2. * (- pow(gsq * phi * phi, 1.5) / (48. * M_PI) - pow((gsq + gpsq) * phi * phi, 1.5) / (96. * M_PI));
+                    pow(mu2sq + 0.5 * (lam3 + lam4 + lam5) * phi * phi, 1.5) / (12. * M_PI) - 
+                    2. * ( pow(gsq * phi * phi, 1.5) / (48. * M_PI) + pow((gsq + gpsq) * phi * phi, 1.5) / (96. * M_PI));
+
+                // ensure the normalization is correct, that is, when phi = 0, Veff = 0
+                std::complex<double> veff_norm = pow(mu1sq , 1.5) / (4. * M_PI) + 
+                    pow(mu1sq , 1.5) / (12. * M_PI) + 
+                    pow(mu2sq , 1.5) / (6. * M_PI) + 
+                    pow(mu2sq , 1.5) / (12. * M_PI) + 
+                    pow(mu2sq , 1.5) / (12. * M_PI) ;
 
                 if ( potential_flag == 1 ) {
-                    return T * veffLO.real() + T * veffNLO.real();
+                    return T * veffLO.real() + T * veffNLO.real() + T * veff_norm.real();
                 }
 
                 if ( potential_flag == 2 ) {

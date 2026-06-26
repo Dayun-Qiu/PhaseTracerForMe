@@ -37,7 +37,7 @@ int main(int argc, char *argv[]) {
   double daisy_flag;
 
   if (argc == 1) {
-    debug_mode = true;
+    debug_mode = false;
     // Match choices in 1808.01098
     //    lambda_hs = 0.24;
     //    ms = 0.5 * SM::mh;
@@ -240,5 +240,7 @@ int main(int argc, char *argv[]) {
   //
   //  output_file << toString(in, out, flags) << std::endl;
   output_file.close();
+
+
   return 0;
 }

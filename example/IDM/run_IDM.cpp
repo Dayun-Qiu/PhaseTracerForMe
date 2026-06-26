@@ -2,6 +2,7 @@
 #include "phase_finder.hpp"
 #include "transition_finder.hpp"
 #include "gravwave_calculator.hpp"
+#include <boost/log/trivial.hpp>
 #include <iostream>
 #include <fstream>
 #include <string>
@@ -91,7 +92,7 @@ phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
     pf.set_t_high(300.0);
     pf.set_t_low(10.0);
     pf.set_v(246.22);
-    pf.set_check_hessian_singular(false);
+    pf.set_check_hessian_singular(true);
     pf.set_check_vacuum_at_high(false);
     
     
@@ -101,9 +102,13 @@ phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
     // std::cout << "Done!" << std::endl;
 
     pf.find_phases();
+    //std::cout <<pf << std::endl;  // 暂时禁用打印
 
     // create action calculator object
     PhaseTracer::ActionCalculator ac(model);
+    //ac.set_action_calculator(PhaseTracer::ActionMethod::BubbleProfiler);
+
+
 
     //createtransitionfinderobject
     PhaseTracer::TransitionFinder tf(pf, ac);
@@ -111,11 +116,12 @@ phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
 
     //findtransitions
     tf.find_transitions();
+    //std::cout << "TransitionFinder completed. " << std::endl;
 
     // extract transitions
     auto t = tf.get_transitions();
     //std::cout <<tf;
-
+    //std::cout << "计算完成。 "  << std::endl;
     phase_params result;
 
     if (t.size() < 1) {
@@ -157,62 +163,57 @@ phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
 
 
 void test(EffectivePotential::IDM &model) {
-    double phi = 0.000000; 
-    double T =  57.190635;  
+    double phi = 106.265664;  
+    double T =  120.401338;  
     auto params = model.get_params();
     EffectivePotential::SelfEnergy self_energy(params.lam2, params.lamL, params.mA, params.mH, params.mHpm);
     auto bosons_init = model.boson_massSq(Eigen::VectorXd::Constant(1, phi), T, EffectivePotential::ThermalMassScheme::Tree); // Initial guess
     auto bosons_bare = model.boson_massSq(Eigen::VectorXd::Constant(1, phi), T, EffectivePotential::ThermalMassScheme::CTterm);
-    EffectivePotential::gapEqResult result = self_energy.solve_gap_equations(phi, T, 1e-3, bosons_bare, bosons_init, 300);
+    EffectivePotential::gapEqResult result = self_energy.solve_gap_equations(phi, T, 1e-2, bosons_bare, bosons_init, 100);
     std::cout << "messages:" << result.message << std::endl;
     std::cout << "loss:" << result.loss << std::endl;
 }
 
 
-void plot_data(double lam2, double lamL, double mA, double mH, double mHpm) {
-    EffectivePotential::IDM idm;
-    idm.init_params(lam2, lamL, mA, mH, mHpm, "1");
-    idm.calc_conterterms();
-    idm.init_mass_splines();
-
-    double phimin = 0.0, phimax = 400.0;
-    double Tmin = 0.0, Tmax = 300.0;
-    int n_phi = 800, n_T = 600;
-
-    const int n_mass = 13; // mh2, mG2, mA2, mH2, mHpm2, mW2L, mZ2L, mga2L, mW2T, mZ2T, mga2T, swL, swT
-
-    // Generate grid coordinates
-    std::vector<double> xphi(n_phi);
-    std::vector<double> xT(n_T);
-    for (int i = 0; i < n_phi; ++i) xphi[i] = phimin + i * (phimax - phimin) / (n_phi - 1);
-    for (int j = 0; j < n_T; ++j) xT[j] = Tmin + j * (Tmax - Tmin) / (n_T - 1);
-
-
-    // 构建样条
-    EffectivePotential::MassSplines mass_splines = idm.get_mass_splines();
-    
-    for (int k = 0; k < n_mass; ++k) {
-        std::string interp_file = "/home/dayun/data/interp_" + std::to_string(k) + ".txt";
-        std::ofstream fout(interp_file);
-        if (!fout) {
-            std::cerr << "Cannot write to " << interp_file << std::endl;
-            continue;
-        }
-        fout << "# phi T interp\n";
-        for (int i = 0; i < n_phi; ++i) {
-            for (int j = 0; j < n_T; ++j) {
-                double interp = alglib::spline2dcalc(mass_splines.get(k), xphi[i], xT[j]);
-                fout << xphi[i] << " " << xT[j] << " " << interp << "\n";
-            }
-        }
-        std::cout << "Interpolation values written to " << interp_file << std::endl;
-        fout.close();
-    }
-}
+// void plot_data(double lam2, double lamL, double mA, double mH, double mHpm) {
+//     EffectivePotential::IDM idm;
+//     idm.init_params(lam2, lamL, mA, mH, mHpm, "1");
+//     idm.calc_conterterms();
+//     idm.init_mass_splines();
+//     double phimin = 0.0, phimax = 400.0;
+//     double Tmin = 0.0, Tmax = 300.0;
+//     int n_phi = 800, n_T = 600;
+//     const int n_mass = 13; // mh2, mG2, mA2, mH2, mHpm2, mW2L, mZ2L, mga2L, mW2T, mZ2T, mga2T, swL, swT
+//     // Generate grid coordinates
+//     std::vector<double> xphi(n_phi);
+//     std::vector<double> xT(n_T);
+//     for (int i = 0; i < n_phi; ++i) xphi[i] = phimin + i * (phimax - phimin) / (n_phi - 1);
+//     for (int j = 0; j < n_T; ++j) xT[j] = Tmin + j * (Tmax - Tmin) / (n_T - 1);
+//     // 构建样条
+//     EffectivePotential::MassSplines mass_splines = idm.get_mass_splines();
+//     //EffectivePotential::MassRBFs mass_rbfs_ = idm.get_mass_rbfs();
+//     for (int k = 0; k < n_mass; ++k) {
+//         std::string interp_file = "/home/dayun/data/interp_" + std::to_string(k) + ".txt";
+//         std::ofstream fout(interp_file);
+//         if (!fout) {
+//             std::cerr << "Cannot write to " << interp_file << std::endl;
+//             continue;
+//         }
+//         fout << "# phi T interp\n";
+//         for (int i = 0; i < n_phi; ++i) {
+//             for (int j = 0; j < n_T; ++j) {
+//                 double interp = alglib::spline2dcalc(mass_splines.Mh2, xphi[i], xT[j]);
+//                 fout << xphi[i] << " " << xT[j] << " " << interp << "\n";
+//             }
+//         }
+//         std::cout << "Interpolation values written to " << interp_file << std::endl;
+//         fout.close();
+//     }
+// }
 
 
 int main(int argc, char *argv[]) { 
-
+    //std::cout << EffectivePotential::J_F(0) << std::endl;
     // Set default values for parameters
     double lam2 = 0.2;
     double lamL = 0.0015;
@@ -235,25 +236,28 @@ int main(int argc, char *argv[]) {
         std::cerr << "[Info] No command line arguments provided. Using default values." << std::endl;
     }
 
-    LOGGER(fatal);
+    LOGGER(debug);
 
     phase_params result;
 
     if (resum == "DR") {
         EffectivePotential::IDM_DR idm(lam2, lamL, mA, mH, mHpm);
         // 生成势能数据
-        std::vector<double> phis(1000), Vs(1000);
-        for (int i = 0; i < 1000; ++i) {
-            phis[i] = 0.4 * (i+1) ;
-            Vs[i] = idm.V(Eigen::VectorXd::Constant(1, phis[i]), 300.);
-        }
-        // 保存数据
-        std::ofstream fout("/home/dayun/data/Vs.txt");
-        fout << "# phi V\n";
-        for (int i = 0; i < 1000; ++i) {
-            fout << phis[i] << " " << Vs[i] << "\n";
-        }
-        fout.close();
+        // std::vector<double> phis(100), Vs(100);
+        // for (int i = 0; i < 100; ++i) {
+        //     phis[i] = 0.9 * (i+1) ;
+        //     Vs[i] = idm.V(Eigen::VectorXd::Constant(1, phis[i]), 300.);
+        //     // std::vector<double> params = idm.get_3d_parameters(300);
+        //     // std::cout << "lam1:" << params[3] << std::endl;
+        // }
+
+        // // 保存数据
+        // std::ofstream fout("/home/dayun/data/Vs.txt", std::ofstream::out | std::ofstream::trunc);
+        // fout << "# phi V\n";
+        // for (int i = 0; i < 100; ++i) {
+        //     fout << phis[i] << " " << Vs[i] << "\n";
+        // }
+        // fout.close();
 
         // Check perturbativity and vacuum stability
         if (!idm.check_perturbativity()) {
@@ -267,7 +271,7 @@ int main(int argc, char *argv[]) {
             std::cout << std::nan("")<< std::endl;
             return 1;
         }
-
+        //return 0;
         result = calculate_phasetransition(idm);
     } else {
         EffectivePotential::IDM idm;
@@ -306,7 +310,28 @@ int main(int argc, char *argv[]) {
             std::cerr << "Warning: Invalid resummation scheme '" << resum << "'. Defaulting to no resummation." << std::endl;
             idm.set_resummation_scheme(EffectivePotential::ResummationScheme::None);
         }
+        // 生成势能数据
+        // std::vector<double> phis(100), Vs(100);
+        // //auto mass_splines_ = idm.get_mass_splines();
 
+        // for (int i = 0; i < 100; ++i) {
+        //     phis[i] = 3*i +1;
+        //     Vs[i] = idm.d2V_dx2(Eigen::VectorXd::Constant(1, phis[i]), 108.514)(0,0);
+        //     //Vs[i] = alglib::rbfcalc2(mass_rbfs_.get(3), phis[i], 110.);
+        //     //Vs[i] = idm.boson_massSq(Eigen::VectorXd::Constant(1, phis[i]), 10., EffectivePotential::ThermalMassScheme::dMdx).first[4];
+        // }
+
+
+        // // 保存数据
+        // std::ofstream fout("/home/dayun/data/Vs.txt", std::ofstream::out | std::ofstream::trunc);
+        // fout << "# phi V\n";
+        // for (int i = 0; i < 100; ++i) {
+        //     fout << phis[i] << " " << Vs[i] << "\n";
+        // }
+        // fout.close();
+        //plot_data(lam2, lamL, mA, mH, mHpm);
+        //test(idm);
+        //return 0;
         result = calculate_phasetransition(idm);
     }
 

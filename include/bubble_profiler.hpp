@@ -28,7 +28,7 @@
 
 #include "logger.hpp"
 // Include .hpp of BubbleProfiler
-#include "BubbleProfiler/include/potential.hpp"
+#include "potential.hpp"
 #include "BubbleProfiler/include/action.hpp"
 #include "BubbleProfiler/include/error.hpp"
 #include "BubbleProfiler/include/logging_manager.hpp"

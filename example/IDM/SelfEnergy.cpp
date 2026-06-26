@@ -99,16 +99,16 @@ namespace EffectivePotential {
             case 1:
                 return (1 / (16 * square(M_PI))) * (m2 - square(RG_scale)*xlogx(x_0)); 
             case 2:{
-                if (std::abs(x_0) < 1e-4) {
-                    if (x_0 < 0.0) x_0 = std::min(-1e-4, x_0);
-                    if (x_0 >= 0.0) x_0 = std::max(1e-4, x_0);
+                if (std::abs(x_0) < 1e-6) {
+                    if (x_0 < 0.0) x_0 = std::min(-1e-6, x_0);
+                    if (x_0 >= 0.0) x_0 = std::max(1e-6, x_0);
                 }
                 return - (xlogx(x_0)/x_0) / (16 * square(M_PI));
             }
             case 3: {
-                if (std::abs(x_0) < 1e-4) {
-                    if (x_0 < 0.0) x_0 = std::min(-1e-4, x_0);
-                    if (x_0 >= 0.0) x_0 = std::max(1e-4, x_0);
+                if (std::abs(x_0) < 1e-6) {
+                    if (x_0 < 0.0) x_0 = std::min(-1e-6, x_0);
+                    if (x_0 >= 0.0) x_0 = std::max(1e-6, x_0);
                 }
                 return - 1 / (16 * square(M_PI) * m2);
             }
