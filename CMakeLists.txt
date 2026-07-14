@@ -3,6 +3,7 @@ project(PhaseTracer VERSION 2.1.0 LANGUAGES CXX)
 set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} ${PROJECT_SOURCE_DIR}/cmake)
 enable_language(CXX)
 enable_testing()
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 # option for building models with FlexibleSUSY
 option(BUILD_WITH_FS "Build FlexibleSUSY example program (THDMS with NMSSM BCs) " OFF)

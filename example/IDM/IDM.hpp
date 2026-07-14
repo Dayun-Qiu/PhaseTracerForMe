@@ -18,7 +18,8 @@
 #include <interpolation.h>
 #include "effectivepotential/potential.hpp"
 #include "SelfEnergy.hpp"
-#include "thermal_function.hpp"
+#include <thermal_funcs.h>
+#include <derivatives.h>
 #include "DRIDM_NNLO.hpp"
 
 namespace EffectivePotential {
@@ -601,12 +602,14 @@ namespace EffectivePotential {
 
             // boson correction
             for (size_t i = 0; i < mb2.size(); ++i) {
-                correction += nb[i] * J_B(mb2[i] / square(T), 0);
+                //correction += nb[i] * J_B(mb2[i] / square(T), 0);
+                correction += nb[i] * J_B_bessel(mb2[i] / square(T), 1e-6, 1e-5);
             }
 
             // fermion correction
             for (size_t i = 0; i < mf2.size(); ++i) {
-                correction += nf[i] * J_F(mf2[i] / square(T), 0);
+                //correction += nf[i] * J_F(mf2[i] / square(T), 0);
+                correction += nf[i] * J_F_bessel(mf2[i] / square(T), 1e-6, 1e-5);   
             }
 
             return correction * pow_4(T) / (2. * square(M_PI));
@@ -681,7 +684,8 @@ namespace EffectivePotential {
             std::vector<double> ct = {square(yt) * phi}; 
             for (size_t i = 0; i < nf.size(); ++i) {
                 double x = mf2[i] / square(T);
-                y -= 0.5 * nf[i] * ct[i] * (- 2 * T * J_F(x, 1) + 2 * x * T * J_F(x, 2)) / square(M_PI);
+                //y -= 0.5 * nf[i] * ct[i] * (- 2 * T * J_F(x, 1) + 2 * x * T * J_F(x, 2)) / square(M_PI);
+                y -= 0.5 * nf[i] * ct[i] * (- 2 * T * D1_J_F_bessel(x, 1e-6, 1e-5) + 2 * x * T * D2_J_F_bessel(x, 1e-6, 1e-5)) / square(M_PI);
             }    
 
             // Boson contribution
@@ -704,7 +708,8 @@ namespace EffectivePotential {
             cb[10] = 0.0;                        // d(mga2T)/d(phi) = 0
             for (size_t i = 0; i < 11; ++i) {
                 double x = mb2[i] / square(T);
-                y += 0.5 * nb[i] * cb[i] * ( 2 * T * J_B(x, 1) + (-2 * x * T + dmb2_dt[i]) * J_B(x, 2)) / square(M_PI);
+                //y += 0.5 * nb[i] * cb[i] * ( 2 * T * J_B(x, 1) + (-2 * x * T + dmb2_dt[i]) * J_B(x, 2)) / square(M_PI);
+                y += 0.5 * nb[i] * cb[i] * ( 2 * T * D1_J_B_bessel(x, 1e-6, 1e-5) + (-2 * x * T + dmb2_dt[i]) * D2_J_B_bessel(x, 1e-6, 1e-5)) / square(M_PI);
             }
             // UV terms for transverse modes (indices 8, 9, 10 correspond to mW2T, mZ2T, mga2T)
             y += - cb[8] * UV_term(mb2[8], -2.0, 2) * dmb2_dt[8];

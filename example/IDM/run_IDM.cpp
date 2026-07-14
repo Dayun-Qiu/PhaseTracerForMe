@@ -93,7 +93,7 @@ phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
     pf.set_t_low(10.0);
     pf.set_v(246.22);
     pf.set_check_hessian_singular(true);
-    pf.set_check_vacuum_at_high(false);
+    pf.set_check_vacuum_at_high(true);
     
     
     // auto mass_splines = idm.get_mass_splines();
@@ -316,7 +316,7 @@ int main(int argc, char *argv[]) {
 
         // for (int i = 0; i < 100; ++i) {
         //     phis[i] = 3*i +1;
-        //     Vs[i] = idm.d2V_dx2(Eigen::VectorXd::Constant(1, phis[i]), 108.514)(0,0);
+        //     Vs[i] = idm.d2V_dx2(Eigen::VectorXd::Constant(1, phis[i]), 117.499)(0,0);
         //     //Vs[i] = alglib::rbfcalc2(mass_rbfs_.get(3), phis[i], 110.);
         //     //Vs[i] = idm.boson_massSq(Eigen::VectorXd::Constant(1, phis[i]), 10., EffectivePotential::ThermalMassScheme::dMdx).first[4];
         // }

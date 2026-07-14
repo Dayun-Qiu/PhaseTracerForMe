@@ -1,0 +1,6 @@
+CompileFlags:
+  CompilationDatabase: /home/dayun/PhaseTracerForMe/build
+  Add:
+    - -I/usr/include/libalglib
+    - -I/usr/include/eigen3
+    - -I/home/dayun/thermal_funcs/src
