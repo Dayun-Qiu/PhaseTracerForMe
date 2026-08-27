@@ -2,6 +2,7 @@
 #include "phase_finder.hpp"
 #include "transition_finder.hpp"
 #include "gravwave_calculator.hpp"
+#include "thermal_function.hpp"
 #include <boost/log/trivial.hpp>
 #include <iostream>
 #include <fstream>
@@ -90,7 +91,7 @@ phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
     pf.set_lower_bounds({-400.0});
     pf.set_guess_points({Eigen::VectorXd::Constant(1, 246.22)});
     pf.set_t_high(300.0);
-    pf.set_t_low(10.0);
+    pf.set_t_low(60.0); // Jb(x) , x < 3
     pf.set_v(246.22);
     pf.set_check_hessian_singular(true);
     pf.set_check_vacuum_at_high(true);
@@ -163,15 +164,16 @@ phase_params calculate_phasetransition(EffectivePotential::Potential &model) {
 
 
 void test(EffectivePotential::IDM &model) {
-    double phi = 106.265664;  
-    double T =  120.401338;  
+    double phi = 50;  
+    double T =  100.0;  
     auto params = model.get_params();
     EffectivePotential::SelfEnergy self_energy(params.lam2, params.lamL, params.mA, params.mH, params.mHpm);
     auto bosons_init = model.boson_massSq(Eigen::VectorXd::Constant(1, phi), T, EffectivePotential::ThermalMassScheme::Tree); // Initial guess
     auto bosons_bare = model.boson_massSq(Eigen::VectorXd::Constant(1, phi), T, EffectivePotential::ThermalMassScheme::CTterm);
-    EffectivePotential::gapEqResult result = self_energy.solve_gap_equations(phi, T, 1e-2, bosons_bare, bosons_init, 100);
+    EffectivePotential::gapEqResult result = self_energy.solve_gap_equations(phi, T, 1e-2, bosons_bare, bosons_init, 300);
     std::cout << "messages:" << result.message << std::endl;
     std::cout << "loss:" << result.loss << std::endl;
+    //std::cout << "x: " << result.x[8] << " " << result.x[9] << " " << result.x[10] << std::endl;  
 }
 
 
@@ -311,27 +313,28 @@ int main(int argc, char *argv[]) {
             idm.set_resummation_scheme(EffectivePotential::ResummationScheme::None);
         }
         // 生成势能数据
-        // std::vector<double> phis(100), Vs(100);
+        // std::vector<double> phis(1000), Vs2(1000);
         // //auto mass_splines_ = idm.get_mass_splines();
-
-        // for (int i = 0; i < 100; ++i) {
-        //     phis[i] = 3*i +1;
-        //     Vs[i] = idm.d2V_dx2(Eigen::VectorXd::Constant(1, phis[i]), 117.499)(0,0);
+        // //idm.set_h(1);
+        // for (int i = 0; i < 1000; ++i) {
+        //     phis[i] = 0.35*i ;
+        //     //Vs[i] = D2_J_B_bessel(phis[i]);
+        //     Vs2[i] = idm.d2V_dx2(Eigen::VectorXd::Constant(1, phis[i]), 100)(0, 0);
+        //     //Vs2[i] = EffectivePotential::J_B(phis[i], 3);
         //     //Vs[i] = alglib::rbfcalc2(mass_rbfs_.get(3), phis[i], 110.);
         //     //Vs[i] = idm.boson_massSq(Eigen::VectorXd::Constant(1, phis[i]), 10., EffectivePotential::ThermalMassScheme::dMdx).first[4];
         // }
-
-
         // // 保存数据
         // std::ofstream fout("/home/dayun/data/Vs.txt", std::ofstream::out | std::ofstream::trunc);
-        // fout << "# phi V\n";
-        // for (int i = 0; i < 100; ++i) {
-        //     fout << phis[i] << " " << Vs[i] << "\n";
+        // fout << "# phi V V2\n";
+        // for (int i = 0; i < 1000; ++i) {
+        //     fout << phis[i] << " " << Vs2[i] << "\n";
         // }
         // fout.close();
-        //plot_data(lam2, lamL, mA, mH, mHpm);
-        //test(idm);
-        //return 0;
+        // // plot_data(lam2, lamL, mA, mH, mHpm);
+        // test(idm);
+        // //idm.V(Eigen::VectorXd::Constant(1, 100.0), 117.499) ;
+        // return 0;
         result = calculate_phasetransition(idm);
     }
 

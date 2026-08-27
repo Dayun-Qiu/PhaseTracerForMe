@@ -1,15 +1,30 @@
 # Create the library target
 
+find_package(GSL REQUIRED)
+
 file(GLOB SRC_FILES *.cpp)
 set(CMAKE_LIBRARY_OUTPUT_DIRECTORY ${PROJECT_SOURCE_DIR}/lib)
-link_libraries(${ALGLIB_LIBRARIES} ${Boost_LIBRARIES})
+link_libraries(${ALGLIB_LIBRARIES} ${Boost_LIBRARIES} ${GSL_LIBRARIES})
 add_library(effectivepotential SHARED ${SRC_FILES})
 
 # add header files here so they are available in the cmake config
 
+
+target_include_directories(effectivepotential PRIVATE
+  /home/dayun/thermal_funcs/src
+)
+
 target_include_directories(effectivepotential INTERFACE
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/effectivepotential>
   $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include/>
+)
+
+target_link_directories(effectivepotential PRIVATE
+  /home/dayun/thermal_funcs/lib
+)
+
+target_link_libraries(effectivepotential
+  thermal_funcs
 )
 
 # helpers for making config

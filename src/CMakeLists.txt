@@ -22,3 +22,15 @@ if(THREADS_HAVE_PTHREAD_ARG)
 endif()
 
 add_library(phasetracer SHARED ${SRC_FILES})
+
+target_include_directories(phasetracer PRIVATE
+  /home/dayun/thermal_funcs/src
+)
+
+target_link_directories(phasetracer PRIVATE
+  /home/dayun/thermal_funcs/lib
+)
+
+target_link_libraries(phasetracer
+  thermal_funcs
+)

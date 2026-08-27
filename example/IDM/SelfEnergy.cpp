@@ -43,7 +43,7 @@ namespace EffectivePotential {
         }
         else {
             double x_T = m2/square(T);
-            double result = - (2*pow_4(T) / square(M_PI)) * J_B(x_T, 0) + (m2 * square(T)/ square(M_PI)) * J_B(x_T, 1);
+            double result = - (2*pow_4(T) / square(M_PI)) * J_B(x_T, 0) + (pow_4(T)/ square(M_PI)) * x_T * J_B(x_T, 1);
             return result;
         }
     }
@@ -69,7 +69,7 @@ namespace EffectivePotential {
         }
         else {
             double x_T = m2/square(T);
-            double result = (2*pow_4(T) / square(M_PI)) * J_F(x_T, 0) - (m2 * square(T)/ square(M_PI)) * J_F(x_T, 1);
+            double result = (2*pow_4(T) / square(M_PI)) * J_F(x_T, 0) - (pow_4(T)/ square(M_PI)) * x_T * J_F(x_T, 1);
             return result;
         }
     }
@@ -99,16 +99,14 @@ namespace EffectivePotential {
             case 1:
                 return (1 / (16 * square(M_PI))) * (m2 - square(RG_scale)*xlogx(x_0)); 
             case 2:{
-                if (std::abs(x_0) < 1e-6) {
-                    if (x_0 < 0.0) x_0 = std::min(-1e-6, x_0);
-                    if (x_0 >= 0.0) x_0 = std::max(1e-6, x_0);
+                if (std::abs(x_0) ==0.0) {
+                    return std::numeric_limits<double>::infinity();
                 }
-                return - (xlogx(x_0)/x_0) / (16 * square(M_PI));
+                return - std::log(std::abs(x_0)) / (16 * square(M_PI));
             }
             case 3: {
-                if (std::abs(x_0) < 1e-6) {
-                    if (x_0 < 0.0) x_0 = std::min(-1e-6, x_0);
-                    if (x_0 >= 0.0) x_0 = std::max(1e-6, x_0);
+                if (std::abs(x_0) == 0.0) {
+                    return std::numeric_limits<double>::infinity();
                 }
                 return - 1 / (16 * square(M_PI) * m2);
             }
@@ -147,7 +145,7 @@ namespace EffectivePotential {
             else {
                 double coeff = std::pow(-1, j) / factorial(j - 1);
                 double x_T = m2 / square(T);
-                double result = - (2-j) * (std::pow(T, 4-2*j)/ square(M_PI)) * J_B(x_T, j) + (m2 * std::pow(T, 2-2*j)/ square(M_PI)) * J_B(x_T, j+1);
+                double result = - (2-j) * (std::pow(T, 4-2*j)/ square(M_PI)) * J_B(x_T, j) + (std::pow(T, 4-2*j)/ square(M_PI)) *x_T* J_B(x_T, j+1);
                 return coeff * result;
             }
         }
@@ -182,7 +180,7 @@ namespace EffectivePotential {
             else {
                 double coeff = std::pow(-1, j) / factorial(j - 1);
                 double x_T = m2 / square(T);
-                double result = (2-j) * (std::pow(T, 4-2*j)/ square(M_PI)) * J_F(x_T, j) - (m2 * std::pow(T, 2-2*j)/ square(M_PI)) * J_F(x_T, j+1);
+                double result = (2-j) * (std::pow(T, 4-2*j)/ square(M_PI)) * J_F(x_T, j) - (std::pow(T, 4-2*j)/ square(M_PI)) * x_T * J_F(x_T, j+1);
                 return coeff * result;
             }
         }

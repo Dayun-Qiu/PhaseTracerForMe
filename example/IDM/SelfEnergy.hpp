@@ -93,55 +93,68 @@ namespace EffectivePotential {
     
             // Top quark contribution: Pihtt
             double Pihtt(double mt2, double T) const {
+                if (std::abs(mt2) == 0.0) return 6.0 * square(yt) * (-Ijf(mt2, T, 1) );
                 return 6.0 * square(yt) * (-Ijf(mt2, T, 1) + 2.0 * mt2 * Ijf(mt2, T, 2));
             }
 
             double DPihtt_Dm2(double mt2) const {
+                if (std::abs(mt2) == 0.0) return std::numeric_limits<double>::infinity();
                 return 6.0 * square(yt) * (3.0 * zeroT_term_deriv(mt2, 2) + 2.0 * mt2 * zeroT_term_deriv(mt2, 3));
             }
 
             // h particle contribution: Pihhh
             double Pihhh(double mh2, double T, double phi) const {
+                if (std::abs(mh2) == 0.0) return std::numeric_limits<double>::infinity();
                 return -4.5 * square(lam1) * square(phi) * Ijb(mh2, T, 2);
             }
             
             double DPihhh_Dm2(double mh2) const {
+                if (std::abs(mh2) == 0.0) return std::numeric_limits<double>::infinity();
                 return -4.5 * square(lam1) * square(v0) * zeroT_term_deriv(mh2, 3);
             }
 
             // A particle contribution: PihAA
             double PihAA(double mA2, double T, double phi) const {
+                if (std::abs(mA2) == 0.0) return std::numeric_limits<double>::infinity();
                 return -0.5 * square(lamm) * square(phi) * Ijb(mA2, T, 2);
             }
 
             double DPihAA_Dm2(double mA2) const {
+                if (std::abs(mA2) == 0.0) return std::numeric_limits<double>::infinity();
                 return -0.5 * square(lamm) * square(v0) * zeroT_term_deriv(mA2, 3);
             }
 
             // H particle contribution: PihHH
             double PihHH(double mH2, double T, double phi) const {
+                if (std::abs(mH2) == 0.0) return std::numeric_limits<double>::infinity();
                 return -0.5 * square(lamp) * square(phi) * Ijb(mH2, T, 2);
             }
             
             double DPihHH_Dm2(double mH2) const {
+                if (std::abs(mH2) == 0.0) return std::numeric_limits<double>::infinity();
                 return -0.5 * square(lamp) * square(v0) * zeroT_term_deriv(mH2, 3);
             }
 
             // H± particle contribution: PihHpHm
             double PihHpHm(double mHpm2, double T, double phi) const {
+                if (std::abs(mHpm2) == 0.0) return std::numeric_limits<double>::infinity();
                 return -square(lam3) * square(phi) * Ijb(mHpm2, T, 2);
             }
             
             double DPihHpHm_Dm2(double mHpm2) const {
+                if (std::abs(mHpm2) == 0.0) return std::numeric_limits<double>::infinity();
                 return -square(lam3) * square(v0) * zeroT_term_deriv(mHpm2, 3);
             }
 
             // G particle contribution: PihGG
             double PihGG(double mG2, double T, double phi) const {
+                if (std::abs(mG2) == 0.0) return std::numeric_limits<double>::infinity();
+                //std::cout << "mG2 = " << mG2 << "  I2b = " << Ijb(mG2, T, 2) << std::endl;
                 return -1.5 * square(lam1) * square(phi) * Ijb(mG2, T, 2);
             }
             
             double DPihGG_Dm2(double mG2) const {
+                if (std::abs(mG2) == 0.0) return std::numeric_limits<double>::infinity();
                 return -1.5 * square(lam1) * square(v0) * zeroT_term_deriv(mG2, 3);
             }
 
@@ -151,8 +164,8 @@ namespace EffectivePotential {
                 swT = std::clamp(swT, 0.0, 1.0);
                 double cwL = std::sqrt(1.0 - square(swL));
                 double cwT = std::sqrt(1.0 - square(swT));
-                double L_term = -0.125 * pow_4(g * cwL + gp * swL) * square(phi) * Ijb(mZ2L, T, 2);
-                double T_term = -0.125 * pow_4(g * cwT + gp * swT) * square(phi) * (2.0 * Ijb(mZ2T, T, 2) + UV_term(mZ2T, -2.0, 2));
+                double L_term = (std::abs(phi) == 0.0) ? 0.0 : -0.125 * pow_4(g * cwL + gp * swL) * square(phi) * Ijb(mZ2L, T, 2);
+                double T_term = (std::abs(phi) == 0.0) ? 0.0 : -0.125 * pow_4(g * cwT + gp * swT) * square(phi) * (2.0 * Ijb(mZ2T, T, 2) + UV_term(mZ2T, -2.0, 2));
                 return L_term + T_term;
             }
 
@@ -167,9 +180,9 @@ namespace EffectivePotential {
                 swT = std::clamp(swT, 0.0, 1.0);
                 double cwL = std::sqrt(1.0 - square(swL));
                 double cwT = std::sqrt(1.0 - square(swT));
-                double L_term = -0.125 * pow_4(g * swL - gp * cwL) * square(phi) * Ijb(mga2L, T, 2);
-                //double T_term = -0.125 * pow_4(g * swT - gp * cwT) * square(phi) * (2.0 * Ijb(mga2T, T, 2) + UV_term(mga2T, -2.0, 2));
-                return L_term ;//+ T_term;
+                double L_term = (std::abs(mga2L) == 0.0) ? 0.0 : -0.125 * pow_4(g * swL - gp * cwL) * square(phi) * Ijb(mga2L, T, 2);
+                double T_term = (std::abs(mga2T) == 0.0) ? 0.0 : -0.125 * pow_4(g * swT - gp * cwT) * square(phi) * (2.0 * Ijb(mga2T, T, 2) + UV_term(mga2T, -2.0, 2));
+                return L_term + T_term;
             }
 
             // gamma-Z mixing contribution: PihgaZ
@@ -178,13 +191,13 @@ namespace EffectivePotential {
                 swT = std::clamp(swT, 0.0, 1.0);
                 double cwL = std::sqrt(1.0 - square(swL));
                 double cwT = std::sqrt(1.0 - square(swT));
-                double L_term = -0.125 * square(g * swL - gp * cwL) * square(g * cwL + gp * swL) * square(phi) * Imix(mga2L, mZ2L, T);
+                double L_term =  (std::abs(phi) == 0.0) ? 0.0 : -0.125 * square(g * swL - gp * cwL) * square(g * cwL + gp * swL) * square(phi) * Imix(mga2L, mZ2L, T);
                 
                 double deltaM2 = mZ2T - mga2T;
                 double T_term;
                 if (std::abs(deltaM2) < 1e-4) { // if the mass difference is small, use the derivative to avoid numerical instability
                     double arg = (mga2T + mZ2T) / 2.0;
-                    T_term = -0.125 * square(g * swT - gp * cwT) * square(g * cwT + gp * swT) * square(phi) * (2.0 * Ijb(arg, T, 2) + UV_term(arg, -2.0, 2));
+                    T_term =  (std::abs(phi) == 0.0) ? 0.0 : -0.125 * square(g * swT - gp * cwT) * square(g * cwT + gp * swT) * square(phi) * (2.0 * Ijb(arg, T, 2) + UV_term(arg, -2.0, 2));
                 } else {
                     T_term = -0.125 * square(g * swT - gp * cwT) * square(g * cwT + gp * swT) * square(phi) * (2.0 * (Ijb(mga2T, T, 1) - Ijb(mZ2T, T, 1)) / deltaM2 +  (UV_term(mga2T, -2.0, 1) - UV_term(mZ2T, -2.0, 1)) / deltaM2);
                 }
@@ -193,7 +206,7 @@ namespace EffectivePotential {
 
             // W boson contribution: PihWW
             double PihWW(double mW2L, double mW2T, double T, double phi) const {
-                return -0.25 * pow_4(g) * square(phi) * (Ijb(mW2L, T, 2) + 2.0 * Ijb(mW2T, T, 2) + UV_term(mW2T, -2.0, 2));
+                return  (std::abs(phi) == 0.0) ? 0.0 : -0.25 * pow_4(g) * square(phi) * (Ijb(mW2L, T, 2) + 2.0 * Ijb(mW2T, T, 2) + UV_term(mW2T, -2.0, 2));
             }
             
             double DPihWW_Dm2(double mW2) const {
@@ -281,10 +294,10 @@ namespace EffectivePotential {
                     double mW2Lstar    = MB2[5] - factor;
                     double mZ2Lstar    = MB2[6] - factor;
                     double mga2Lstar   = MB2[7] - factor;
-                    double mW2Tstar    = MB2[8] - factor;
-                    double mZ2Tstar    = MB2[9] - factor;
-                    double mga2Tstar   = MB2[10] - factor;
-                    double swL    = MB2[11];
+                    double swL    = MB2[8];
+                    double mW2Tstar    = MB2[9] - factor;
+                    double mZ2Tstar    = MB2[10] - factor;
+                    double mga2Tstar   = MB2[11] - factor;
                     double swT     = MB2[12];
 
                     double Pisum = 0.0;
@@ -293,6 +306,7 @@ namespace EffectivePotential {
                     Pisum += PihAA(mA2star, .0, phi);
                     Pisum += PihHH(mH2star, .0, phi);
                     Pisum += PihHpHm(mHpm2star, .0, phi);
+                    //if (mG2star == 0.0) std::cout << "mG2star == 0.0" << std::endl;
                     Pisum += PihGG(mG2star, .0, phi);
                     Pisum += PihZZ(mZ2Lstar, mZ2Tstar, .0, swL, swT, phi);
                     //Pisum += Pihgaga(mga2Lstar, mga2Tstar, .0, swL, swT, phi);
@@ -322,7 +336,7 @@ namespace EffectivePotential {
                     double mHpm2star = MB2[4] - factor;
                     double mW2star   = MB2[5] - factor; 
                     double mZ2star   = MB2[6] - factor; 
-                    double sw        = MB2[11];
+                    double sw        = MB2[8];
 
                     double Pisum = 0.0;
                     Pisum += DPihtt_Dm2(mt2star);
@@ -365,10 +379,10 @@ namespace EffectivePotential {
                 double mW2L    = MB2[5];
                 double mZ2L    = MB2[6];
                 double mga2L   = MB2[7];
-                double mW2T    = MB2[8];
-                double mZ2T    = MB2[9];
-                double mga2T   = MB2[10];
-                double swL     = MB2[11];
+                double swL     = MB2[8];
+                double mW2T    = MB2[9];
+                double mZ2T    = MB2[10];
+                double mga2T   = MB2[11];
                 double swT     = MB2[12];
 
                 double Pisum = 0.0;   
@@ -395,10 +409,10 @@ namespace EffectivePotential {
                 double mW2L    = MB2[5];
                 double mZ2L    = MB2[6];
                 double mga2L   = MB2[7];
-                double mW2T    = MB2[8];
-                double mZ2T    = MB2[9];
-                double mga2T   = MB2[10];
-                double swL     = MB2[11];
+                double swL     = MB2[8];
+                double mW2T    = MB2[9];
+                double mZ2T    = MB2[10];
+                double mga2T   = MB2[11];
                 double swT     = MB2[12];
 
                 double Pisum = 0.0;
@@ -509,10 +523,10 @@ namespace EffectivePotential {
                 double mW2L    = MB2[5]; 
                 double mZ2L    = MB2[6]; 
                 double mga2L   = MB2[7]; 
-                double mW2T    = MB2[8]; 
-                double mZ2T    = MB2[9]; 
-                double mga2T   = MB2[10]; 
-                double swL     = MB2[11]; 
+                double swL     = MB2[8]; 
+                double mW2T    = MB2[9]; 
+                double mZ2T    = MB2[10]; 
+                double mga2T   = MB2[11]; 
                 double swT     = MB2[12]; 
 
                 double Pisum = 0.0;
@@ -657,10 +671,10 @@ namespace EffectivePotential {
                 double mW2L    = MB2[5];
                 double mZ2L    = MB2[6];
                 double mga2L   = MB2[7];
-                double mW2T    = MB2[8];
-                double mZ2T    = MB2[9];
-                double mga2T   = MB2[10];
-                double swL     = MB2[11];
+                double swL     = MB2[8];
+                double mW2T    = MB2[9];
+                double mZ2T    = MB2[10];
+                double mga2T   = MB2[11];
                 double swT     = MB2[12];
 
                 double Pisum = 0.0;
@@ -805,10 +819,10 @@ namespace EffectivePotential {
                 double mW2L    = MB2[5];
                 double mZ2L    = MB2[6];
                 double mga2L   = MB2[7];
-                double mW2T    = MB2[8];
-                double mZ2T    = MB2[9];
-                double mga2T   = MB2[10];
-                double swL = MB2[11];
+                double swL = MB2[8];
+                double mW2T    = MB2[9];
+                double mZ2T    = MB2[10];
+                double mga2T   = MB2[11];
                 double swT = MB2[12];
                 
                 double Pisum = 0.0;
@@ -953,10 +967,10 @@ namespace EffectivePotential {
                 double mW2L    = MB2[5];
                 double mZ2L    = MB2[6];
                 double mga2L   = MB2[7];
-                double mW2T    = MB2[8];
-                double mZ2T    = MB2[9];
-                double mga2T   = MB2[10];
-                double swL = MB2[11];
+                double swL = MB2[8];
+                double mW2T    = MB2[9];
+                double mZ2T    = MB2[10];
+                double mga2T   = MB2[11];
                 double swT = MB2[12];
 
                 double Pisum = 0.0;
@@ -992,7 +1006,9 @@ namespace EffectivePotential {
                 
                 if (std::abs(deltaM2) < 1e-4) {
                     double arg = (ma2 + mb2) / 2.0;
-                    Temp_term = -Ijb(mb2, T, 1) + arg * Ijb(arg, T, 2) - (-0.5 * Ijb(arg, T, 1) + DTIjb(arg, T, 1));
+                    if (std::abs(arg) == 0.0) Temp_term = -Ijb(mb2, T, 1) - (-0.5 * Ijb(arg, T, 1) + DTIjb(arg, T, 1));
+                    else Temp_term = -Ijb(mb2, T, 1) + arg * Ijb(arg, T, 2) - (-0.5 * Ijb(arg, T, 1) + DTIjb(arg, T, 1));
+
                     UV_term_val = -UV_term(mb2, 2.0/3.0, 1) + arg * UV_term(arg, 2.0/3.0, 2) + 0.5 * UV_term(arg, 2.0/3.0, 1);
                 } else {
                     Temp_term = -Ijb(mb2, T, 1) + ma2 * Imix(ma2, mb2, T) - (0.5 * I0b(mb2, T) - DTIjb(mb2, T, 0) - 0.5 * I0b(ma2, T) + DTIjb(ma2, T, 0))/deltaM2;
@@ -1020,6 +1036,7 @@ namespace EffectivePotential {
             // Polarization function PiTGG from G and G contributions
             // Applicable to PiWTGG, Pi33TGG, Pi33THpHm, Pi44TGG, Pi44THpHm, Pi34TGG, Pi34THpHm
             double PiTGG(double mG2, double T) const {
+                if (std::abs(mG2) == 0.0) return -0.5 * Ijb(mG2, T, 1) - DTIjb(mG2, T, 1) - 0.5 * UV_term(mG2, 2.0/3.0, 1);
                 return -0.5 * Ijb(mG2, T, 1) + mG2 * Ijb(mG2, T, 2) - DTIjb(mG2, T, 1) - 0.5 * UV_term(mG2, 2.0/3.0, 1) + mG2 * UV_term(mG2, 2.0/3.0, 2);
             }
 
@@ -1034,37 +1051,43 @@ namespace EffectivePotential {
                 double deltaM2L = ms2 - mv2L;
                 double deltaM2T = ms2 - mv2T;
                 
-                double TransverTerm;
-                if (std::abs(deltaM2T) < 1e-4) {
-                    double argT = (mv2T + ms2) / 2.0 ;
-                    TransverTerm = 2.0 * Ijb(argT, T, 2) + UV_term(argT, -2.0/3.0, 2);
-                } else {
-                    TransverTerm = 2.0 * Imix(mv2T, ms2, T) + (UV_term(mv2T, -2.0/3.0, 1) - UV_term(ms2, -2.0/3.0, 1))/deltaM2T;
+                double TransverTerm = 0.0;
+                if (gT != 0.0) {
+                    if (std::abs(deltaM2T) < 1e-4) {
+                        double argT = (mv2T + ms2) / 2.0 ;
+                        if (std::abs(argT) == 0.0) return std::numeric_limits<double>::infinity();
+                        TransverTerm = 2.0 * Ijb(argT, T, 2) + UV_term(argT, -2.0/3.0, 2);
+                    } else {
+                        TransverTerm = 2.0 * Imix(mv2T, ms2, T) + (UV_term(mv2T, -2.0/3.0, 1) - UV_term(ms2, -2.0/3.0, 1))/deltaM2T;
+                    }
                 }
                 
-                double LongTerm;
-                if (std::abs(ms2) < 1e-3) {
-                    if (std::abs(deltaM2L) < 1e-5) {
-                        double argL = (mv2L + ms2) / 2.0;
-                        LongTerm = 0.5 * Ijb(argL, T, 2) - DTIjb(argL, T, 2) + 0.5 * UV_term(argL, 2.0/3.0, 2);
+                double LongTerm = 0.0;
+                if (gL != 0.0) {
+                    if (std::abs(ms2) < 1e-3) {
+                        if (std::abs(deltaM2L) < 1e-5) {
+                            double argL = (mv2L + ms2) / 2.0;
+                            if (std::abs(argL) == 0.0) return std::numeric_limits<double>::infinity();
+                            LongTerm = 0.5 * Ijb(argL, T, 2) - DTIjb(argL, T, 2) + 0.5 * UV_term(argL, 2.0/3.0, 2);
+                        } else {
+                            double LongTerm1 = -(0.5 * Ijb(ms2/2.0, T, 1) - DTIjb(ms2/2.0, T, 1))/deltaM2L - 0.5 * UV_term(ms2/2.0, 2.0/3.0, 1)/deltaM2L;
+                            double LongTerm2 = (-0.5 * I0b(mv2L, T) + DTIjb(mv2L, T, 0) - 1.5 * I0b(0.0, T))/(mv2L * deltaM2L) + (-0.5 * UV_term(mv2L, 2.0/3.0, 0))/(mv2L * deltaM2L);
+                            LongTerm = LongTerm1 + LongTerm2;
+                        }
                     } else {
-                        double LongTerm1 = -(0.5 * Ijb(ms2/2.0, T, 1) - DTIjb(ms2/2.0, T, 1))/deltaM2L - 0.5 * UV_term(ms2/2.0, 2.0/3.0, 1)/deltaM2L;
-                        double LongTerm2 = (-0.5 * I0b(mv2L, T) + DTIjb(mv2L, T, 0) - 1.5 * I0b(0.0, T))/(mv2L * deltaM2L) + (-0.5 * UV_term(mv2L, 2.0/3.0, 0))/(mv2L * deltaM2L);
-                        LongTerm = LongTerm1 + LongTerm2;
-                    }
-                } else {
-                    if (std::abs(deltaM2L) < 1e-5) {
-                        double argL = (mv2L + ms2) / 2.0;
-                        double LongTerm1 = -0.5 * (Ijb(argL, T, 0) + argL * Ijb(argL, T, 1))/square(argL) - 0.5 * (UV_term(argL, 2.0/3.0, 0) + argL * UV_term(argL, 2.0/3.0, 1))/square(argL);
-                        double LongTerm2 = (DTIjb(argL, T, 0) + argL * DTIjb(argL, T, 1))/square(argL) - 1.5 * I0b(0.0, T)/square(argL);
-                        LongTerm = LongTerm1 + LongTerm2;
-                    } else {
-                        if (std::abs(mv2L) < 1e-3) {
-                            double LongTerm1 = (0.5 * Ijb(mv2L/2.0, T, 1) - DTIjb(mv2L/2.0, T, 1))/deltaM2L + 0.5 * UV_term(mv2L/2.0, 2.0/3.0, 1)/deltaM2L;
-                            double LongTerm2 = -(-0.5 * I0b(ms2, T) + DTIjb(ms2, T, 0) - 1.5 * I0b(0.0, T))/(ms2 * deltaM2L) + 0.5 * UV_term(ms2, 2.0/3.0, 0)/(ms2 * deltaM2L);
+                        if (std::abs(deltaM2L) < 1e-5) {
+                            double argL = (mv2L + ms2) / 2.0;
+                            double LongTerm1 = -0.5 * (Ijb(argL, T, 0) + argL * Ijb(argL, T, 1))/square(argL) - 0.5 * (UV_term(argL, 2.0/3.0, 0) + argL * UV_term(argL, 2.0/3.0, 1))/square(argL);
+                            double LongTerm2 = (DTIjb(argL, T, 0) + argL * DTIjb(argL, T, 1))/square(argL) - 1.5 * I0b(0.0, T)/square(argL);
                             LongTerm = LongTerm1 + LongTerm2;
                         } else {
-                            LongTerm = -(-0.5 * I0b(ms2, T) + DTIjb(ms2, T, 0) - 1.5 * I0b(0.0, T))/(ms2 * deltaM2L) + (-0.5 * I0b(mv2L, T) + DTIjb(mv2L, T, 0) - 1.5 * I0b(0.0, T))/(mv2L * deltaM2L) - (-0.5 * UV_term(ms2, 2.0/3.0, 0))/(ms2 * deltaM2L) + (-0.5 * UV_term(mv2L, 2.0/3.0, 0))/(mv2L * deltaM2L);
+                            if (std::abs(mv2L) < 1e-3) {
+                                double LongTerm1 = (0.5 * Ijb(mv2L/2.0, T, 1) - DTIjb(mv2L/2.0, T, 1))/deltaM2L + 0.5 * UV_term(mv2L/2.0, 2.0/3.0, 1)/deltaM2L;
+                                double LongTerm2 = -(-0.5 * I0b(ms2, T) + DTIjb(ms2, T, 0) - 1.5 * I0b(0.0, T))/(ms2 * deltaM2L) + 0.5 * UV_term(ms2, 2.0/3.0, 0)/(ms2 * deltaM2L);
+                                LongTerm = LongTerm1 + LongTerm2;
+                            } else {
+                                LongTerm = -(-0.5 * I0b(ms2, T) + DTIjb(ms2, T, 0) - 1.5 * I0b(0.0, T))/(ms2 * deltaM2L) + (-0.5 * I0b(mv2L, T) + DTIjb(mv2L, T, 0) - 1.5 * I0b(0.0, T))/(mv2L * deltaM2L) - (-0.5 * UV_term(ms2, 2.0/3.0, 0))/(ms2 * deltaM2L) + (-0.5 * UV_term(mv2L, 2.0/3.0, 0))/(mv2L * deltaM2L);
+                            }
                         }
                     }
                 }
@@ -1082,7 +1105,7 @@ namespace EffectivePotential {
                 swL = std::clamp(swL, 0.0, 1.0);
                 swT = std::clamp(swT, 0.0, 1.0);
                 double cwL2 = 1.0 - square(swL);
-                double cwT2 = 0.0;//1.0 - square(swT);
+                double cwT2 = 1.0 - square(swT);
                 return -square(g) * square(gp) * square(phi) / 12.0 * PiTSV(mG2, mga2L, mga2T, T, cwL2, cwT2);
             }
 
@@ -1095,10 +1118,10 @@ namespace EffectivePotential {
             double PiWTVV(double m12, double m22, double T, double eps) const {
                 double deltaM2 = m22 - m12;
                 double T_term, UV_term_val;
-                
                 if (std::abs(deltaM2) < 1e-4) {
                     double arg = (m22 + m12) / 2.0;
-                    T_term = -Ijb(m22, T, 1) + m12 * Ijb(arg, T, 2) - (-0.5 * Ijb(arg, T, 1) + DTIjb(arg, T, 1));
+                    if (std::abs(arg) == 0.0) T_term = -Ijb(m22, T, 1) - (-0.5 * Ijb(arg, T, 1) + DTIjb(arg, T, 1));
+                    else T_term = -Ijb(m22, T, 1) + m12 * Ijb(arg, T, 2) - (-0.5 * Ijb(arg, T, 1) + DTIjb(arg, T, 1));
                     UV_term_val = -UV_term(m22, eps, 1) + m12 * UV_term(arg, eps, 2) + 0.5 * UV_term(arg, eps, 1);
                 } else {
                     T_term = -Ijb(m22, T, 1) + m12 * Imix(m12, m22, T) - (0.5 * I0b(m22, T) - DTIjb(m22, T, 0) - 0.5 * I0b(m12, T) + DTIjb(m12, T, 0))/deltaM2;
@@ -1137,10 +1160,10 @@ namespace EffectivePotential {
                 double mW2L = MB2[5];
                 double mZ2L = MB2[6];
                 double mga2L = MB2[7];
-                double mW2T = MB2[8];
-                double mZ2T = MB2[9];
-                double mga2T = MB2[10];
-                double swL = MB2[11];
+                double swL = MB2[8];
+                double mW2T = MB2[9];
+                double mZ2T = MB2[10];
+                double mga2T = MB2[11];
                 double swT = MB2[12];
                 
                 double Pisum = 0.0;
@@ -1150,7 +1173,7 @@ namespace EffectivePotential {
                 Pisum += PiWTHHpm(mH2, mHpm2, T);
                 Pisum += PiWTAHpm(mA2, mHpm2, T);
                 Pisum += PiWThW(mh2, mW2L, mW2T, T, phi);
-                Pisum += PiWTGga(mG2, mga2L, mga2T, T, phi, swL, swT);
+                //Pisum += PiWTGga(mG2, mga2L, mga2T, T, phi, swL, swT);
                 Pisum += PiWTGZ(mG2, mZ2L, mZ2T, T, phi, swL, swT);
                 Pisum += PiWTgaW(mW2L, mga2L, mW2T, mga2T, T, swL, swT);
                 Pisum += PiWTZW(mW2L, mZ2L, mW2T, mZ2T, T, swL, swT);
@@ -1229,10 +1252,10 @@ namespace EffectivePotential {
                 double mW2L = MB2[5];
                 double mZ2L = MB2[6];
                 double mga2L = MB2[7];
-                double mW2T = MB2[8];
-                double mZ2T = MB2[9];
-                double mga2T = MB2[10];
-                double swL = MB2[11];
+                double swL = MB2[8];
+                double mW2T = MB2[9];
+                double mZ2T = MB2[10];
+                double mga2T = MB2[11];
                 double swT = MB2[12];
                 
                 double Pisum = 0.0;
@@ -1310,6 +1333,7 @@ namespace EffectivePotential {
                 if (std::abs(ms2) < 1e-3) {
                     if (std::abs(deltaM2L) < 1e-5) {
                         double argL = (mv2L + ms2) / 2.0;
+                        if (std::abs(argL) == 0.0) return std::numeric_limits<double>::infinity();
                         LongTerm = Ijb(argL, T, 2) - 0.5 * Ijb(argL, T, 2) + DTIjb(argL, T, 2);
                     } else {
                         double LongTerm1 = (0.5 * Ijb(ms2/2.0, T, 1) - DTIjb(ms2/2.0, T, 1)) / deltaM2L;
@@ -1399,10 +1423,10 @@ namespace EffectivePotential {
                 double mW2L = MB2[5];
                 double mZ2L = MB2[6];
                 double mga2L = MB2[7];
-                double mW2T = MB2[8];
-                double mZ2T = MB2[9];
-                double mga2T = MB2[10];
-                double swL = MB2[11];
+                double swL = MB2[8];
+                double mW2T = MB2[9];
+                double mZ2T = MB2[10];
+                double mga2T = MB2[11];
                 double swT = MB2[12];
                 
                 double Pisum = 0.0;
@@ -1412,7 +1436,7 @@ namespace EffectivePotential {
                 Pisum += PiWLHHpm(mH2, mHpm2, T);
                 Pisum += PiWLAHpm(mA2, mHpm2, T);
                 Pisum += PiWLhW(mh2, mW2L, T, phi);
-                Pisum += PiWLGga(mG2, mga2L, T, phi, swL);
+                //Pisum += PiWLGga(mG2, mga2L, T, phi, swL);
                 Pisum += PiWLGZ(mG2, mZ2L, T, phi, swL);
                 Pisum += PiWLgaW(mW2L, mga2L, mW2T, mga2T, T, swL, swT);
                 Pisum += PiWLZW(mW2L, mZ2L, mW2T, mZ2T, T, swL, swT);
@@ -1493,10 +1517,10 @@ namespace EffectivePotential {
                 double mW2L = MB2[5];
                 double mZ2L = MB2[6];
                 double mga2L = MB2[7];
-                double mW2T = MB2[8];
-                double mZ2T = MB2[9];
-                double mga2T = MB2[10];
-                double swL = MB2[11];
+                double swL = MB2[8];
+                double mW2T = MB2[9];
+                double mZ2T = MB2[10];
+                double mga2T = MB2[11];
                 double swT = MB2[12];
                 
                 double Pisum = 0.0;
@@ -1517,7 +1541,13 @@ namespace EffectivePotential {
             
             // Polarization function Pi33Tff from fermion contribution
             double Pi33Tff(double mt2, double T) const {
-                double T_term = -(Ijf(mt2, T, 1) - 2.0 * DTIjf(mt2, T, 1) + 7.0 * Ijf(0.0, T, 1) - 14.0 * DTIjf(0.0, T, 1)) + (-Ijf(mt2, T, 1) + mt2 * Ijf(mt2, T, 2) - 7.0 * Ijf(0.0, T, 1));
+                double T_term;
+                if (std::abs(mt2) == 0.0) {
+                     T_term = -(Ijf(mt2, T, 1) - 2.0 * DTIjf(mt2, T, 1) + 7.0 * Ijf(0.0, T, 1) - 14.0 * DTIjf(0.0, T, 1)) + (-Ijf(mt2, T, 1) - 7.0 * Ijf(0.0, T, 1));
+                }
+                else {
+                    T_term = -(Ijf(mt2, T, 1) - 2.0 * DTIjf(mt2, T, 1) + 7.0 * Ijf(0.0, T, 1) - 14.0 * DTIjf(0.0, T, 1)) + (-Ijf(mt2, T, 1) + mt2 * Ijf(mt2, T, 2) - 7.0 * Ijf(0.0, T, 1));
+                }
                 double UV_term_val = -UV_term(mt2, 1.0/6.0, 1) - UV_term(mt2, -11.0/6.0, 1) + mt2 * UV_term(mt2, -11.0/6.0, 2);
                 return 0.5 * square(g) * (T_term + UV_term_val);
             }
@@ -1544,8 +1574,17 @@ namespace EffectivePotential {
 
             // Polarization function Pi33TWW from W and W contributions
             double Pi33TWW(double mW2L, double mW2T, double T) const {
-                double T_term = -0.5 * Ijb(mW2T, T, 1) + mW2T * Ijb(mW2T, T, 2) - DTIjb(mW2T, T, 1) - 0.5 * UV_term(mW2T, -1.0/3.0, 1) + mW2T * UV_term(mW2T, -1.0/3.0, 2);
-                double L_term = -0.5 * Ijb(mW2L, T, 1) + mW2L * Ijb(mW2L, T, 2) - DTIjb(mW2L, T, 1) - 0.5 * UV_term(mW2L, 2.0/3.0, 1) + mW2L * UV_term(mW2L, 2.0/3.0, 2);
+                double T_term, L_term;
+                if (std::abs(mW2T) == 0.0 ) {
+                    T_term = -0.5 * Ijb(mW2T, T, 1) - DTIjb(mW2T, T, 1) - 0.5 * UV_term(mW2T, -1.0/3.0, 1) + mW2T * UV_term(mW2T, -1.0/3.0, 2);
+                } else {
+                    T_term = -0.5 * Ijb(mW2T, T, 1) + mW2T * Ijb(mW2T, T, 2) - DTIjb(mW2T, T, 1) - 0.5 * UV_term(mW2T, -1.0/3.0, 1) + mW2T * UV_term(mW2T, -1.0/3.0, 2);
+                }
+                if (std::abs(mW2L) == 0.0 ) {
+                   L_term = -0.5 * Ijb(mW2L, T, 1) - DTIjb(mW2L, T, 1) - 0.5 * UV_term(mW2L, 2.0/3.0, 1) + mW2L * UV_term(mW2L, 2.0/3.0, 2);
+                } else {
+                    L_term = -0.5 * Ijb(mW2L, T, 1) + mW2L * Ijb(mW2L, T, 2) - DTIjb(mW2L, T, 1) - 0.5 * UV_term(mW2L, 2.0/3.0, 1) + mW2L * UV_term(mW2L, 2.0/3.0, 2);
+                }
                 return 4.0 * square(g) * (2.0/3.0 * T_term + 1.0/3.0 * L_term);
             }
 
@@ -1566,8 +1605,8 @@ namespace EffectivePotential {
                 swT = std::clamp(swT, 0.0, 1.0);
                 double cwL = std::sqrt(1.0 - square(swL));
                 double cwT = std::sqrt(1.0 - square(swT));
-                double gL = square(square(g) * swL - g * gp * cwL);
-                double gT = 0.0;//square(square(g) * swT - g * gp * cwT);
+                double gL = (std::abs(mga2L) == 0.0) ? 0.0 : square(square(g) * swL - g * gp * cwL);
+                double gT = (std::abs(mga2T) == 0.0) ? 0.0 : square(square(g) * swT - g * gp * cwT);
                 return -square(phi) / 12.0 * PiTSV(mh2, mga2L, mga2T, T, gL, gT);
             }
 
@@ -1586,10 +1625,10 @@ namespace EffectivePotential {
                 double mW2L = MB2[5];
                 double mZ2L = MB2[6];
                 double mga2L = MB2[7];
-                double mW2T = MB2[8];
-                double mZ2T = MB2[9];
-                double mga2T = MB2[10];
-                double swL = MB2[11];
+                double swL = MB2[8];
+                double mW2T = MB2[9];
+                double mZ2T = MB2[10];
+                double mga2T = MB2[11];
                 double swT = MB2[12];
                 
                 double Pisum = 0.0;
@@ -1646,7 +1685,7 @@ namespace EffectivePotential {
                 double mH2 = MB2[3];
                 double mHpm2 = MB2[4];
                 double mW2L = MB2[5];
-                double mW2T = MB2[8];
+                double mW2T = MB2[9];
                 
                 double Pisum = 0.0;
                 Pisum += Pi33Th(mh2, T);
@@ -1663,6 +1702,7 @@ namespace EffectivePotential {
             
             // Polarization function Pi33Lff from fermion contribution
             double Pi33Lff(double mt2, double T) const {
+                if (std::abs(mt2) == 0.0) return 0.75 * square(g) * (-4.0 * DTIjf(mt2, T, 1) - 28.0 * DTIjf(0.0, T, 1) );
                 return 0.75 * square(g) * (-4.0 * DTIjf(mt2, T, 1) - 28.0 * DTIjf(0.0, T, 1) + 2.0 * mt2 * Ijf(mt2, T, 2) + mt2 * UV_term(mt2, -1.0, 2));
             }
 
@@ -1702,7 +1742,7 @@ namespace EffectivePotential {
             double Pi33Lhga(double mh2, double mga2L, double T, double phi, double swL) const {
                 swL = std::clamp(swL, 0.0, 1.0);
                 double cwL = std::sqrt(1.0 - square(swL));
-                return -0.25 * square(square(g) * swL - g * gp * cwL) * square(phi) * PiLSV(mh2, mga2L, T);
+                return (std::abs(mga2L) == 0.0) ? 0.0 : -0.25 * square(square(g) * swL - g * gp * cwL) * square(phi) * PiLSV(mh2, mga2L, T);
             }
 
             // Polarization function Pi33Lcc from ghost contribution
@@ -1720,8 +1760,8 @@ namespace EffectivePotential {
                 double mW2L = MB2[5];
                 double mZ2L = MB2[6];
                 double mga2L = MB2[7];
-                double mW2T = MB2[8];
-                double swL = MB2[11];
+                double swL = MB2[8];
+                double mW2T = MB2[9];
                 
                 double Pisum = 0.0;
                 Pisum += Pi33Lff(mt2, T);
@@ -1777,7 +1817,7 @@ namespace EffectivePotential {
                 double mH2 = MB2[3];
                 double mHpm2 = MB2[4];
                 double mW2L = MB2[5];
-                double mW2T = MB2[8];
+                double mW2T = MB2[9];
                 
                 double Pisum = 0.0;
                 Pisum += Pi33Lh(mh2, T);
@@ -1794,7 +1834,9 @@ namespace EffectivePotential {
             
             // Polarization function Pi44Tff from fermion contribution
             double Pi44Tff(double mt2, double T) const {
-                double Temp_term = -34.0/3.0 * (Ijf(mt2, T, 1) - 2.0 * DTIjf(mt2, T, 1)) + 34.0/3.0 * (-Ijf(mt2, T, 1) + mt2 * Ijf(mt2, T, 2)) - 16.0 * mt2 * Ijf(mt2, T, 2);
+                double Temp_term;
+                if (std::abs(mt2) == 0.0) Temp_term = -34.0/3.0 * (Ijf(mt2, T, 1) - 2.0 * DTIjf(mt2, T, 1)) + 34.0/3.0 * (-Ijf(mt2, T, 1) ) ;
+                else Temp_term = -34.0/3.0 * (Ijf(mt2, T, 1) - 2.0 * DTIjf(mt2, T, 1)) + 34.0/3.0 * (-Ijf(mt2, T, 1) + mt2 * Ijf(mt2, T, 2)) - 16.0 * mt2 * Ijf(mt2, T, 2);
                 double UV_term_val = -34.0/3.0 * UV_term(mt2, 1.0/6.0, 1) + 34.0/3.0 * (-UV_term(mt2, -11.0/6.0, 1) + mt2 * UV_term(mt2, -11.0/6.0, 2)) - 4.0 * mt2 * UV_term(mt2, -2.0, 2);
                 return square(gp)/12.0 * (Temp_term + UV_term_val);
             }
@@ -1841,8 +1883,8 @@ namespace EffectivePotential {
                 swT = std::clamp(swT, 0.0, 1.0);
                 double cwL = std::sqrt(1.0 - square(swL));
                 double cwT = std::sqrt(1.0 - square(swT));
-                double gL = square(square(gp) * cwL - g * gp * swL);
-                double gT = 0.0;//square(square(gp) * cwT - g * gp * swT);
+                double gL = (std::abs(mga2L) == 0.0) ? 0.0 : square(square(gp) * cwL - g * gp * swL);
+                double gT = (std::abs(mga2T) == 0.0) ? 0.0 : square(square(gp) * cwT - g * gp * swT);
                 return -square(phi) / 12.0 * PiTSV(mh2, mga2L, mga2T, T, gL, gT);
             }
 
@@ -1856,10 +1898,10 @@ namespace EffectivePotential {
                 double mW2L = MB2[5];
                 double mZ2L = MB2[6];
                 double mga2L = MB2[7];
-                double mW2T = MB2[8];
-                double mZ2T = MB2[9];
-                double mga2T = MB2[10];
-                double swL = MB2[11];
+                double swL = MB2[8];
+                double mW2T = MB2[9];
+                double mZ2T = MB2[10];
+                double mga2T = MB2[11];
                 double swT = MB2[12];
                 
                 double Pisum = 0.0;
@@ -1924,6 +1966,7 @@ namespace EffectivePotential {
             
             // Polarization function Pi44Lff from fermion contribution
             double Pi44Lff(double mt2, double T) const {
+                if (std::abs(mt2) == 0.0) return square(gp) / 12.0 * (-68.0 * DTIjf(mt2, T, 1) - 412.0 * Ijf(0.0, T, 1) );
                 return square(gp) / 12.0 * (-68.0 * DTIjf(mt2, T, 1) + 18.0 * mt2 * Ijf(mt2, T, 2) - 412.0 * Ijf(0.0, T, 1) + 9.0 * mt2 * UV_term(mt2, -1.0, 2));
             }
 
@@ -1963,7 +2006,7 @@ namespace EffectivePotential {
             double Pi44Lhga(double mh2, double mga2L, double T, double phi, double swL) const {
                 swL = std::clamp(swL, 0.0, 1.0);
                 double cwL = std::sqrt(1.0 - square(swL));
-                return -0.25 * square(square(gp) * cwL - g * gp * swL) * square(phi) * PiLSV(mh2, mga2L, T);
+                return (std::abs(mga2L) == 0.0) ? 0.0 : -0.25 * square(square(gp) * cwL - g * gp * swL) * square(phi) * PiLSV(mh2, mga2L, T);
             }
 
             // Polarization function sum Pi44L3
@@ -1976,7 +2019,7 @@ namespace EffectivePotential {
                 double mW2L = MB2[5];
                 double mZ2L = MB2[6];
                 double mga2L = MB2[7];
-                double swL = MB2[11];
+                double swL = MB2[8];
                 
                 double Pisum = 0.0;
                 Pisum += Pi44Lff(mt2, T);
@@ -2040,7 +2083,9 @@ namespace EffectivePotential {
             
             // Polarization function Pi34Tff from fermion contribution
             double Pi34Tff(double mt2, double T) const {
-                double Temp_term = (2.0 * DTIjf(mt2, T, 1) - Ijf(mt2, T, 1)) - 12.0 * mt2 * Ijf(mt2, T, 2) - (Ijf(mt2, T, 1) - mt2 * Ijf(mt2, T, 2));
+                double Temp_term ;
+                if (std::abs(mt2) == 0.0) Temp_term = (2.0 * DTIjf(mt2, T, 1) - Ijf(mt2, T, 1)) - (Ijf(mt2, T, 1) );
+                else Temp_term = (2.0 * DTIjf(mt2, T, 1) - Ijf(mt2, T, 1)) - 12.0 * mt2 * Ijf(mt2, T, 2) - (Ijf(mt2, T, 1) - mt2 * Ijf(mt2, T, 2));
                 double UV_term_val = -UV_term(mt2, 1.0/6.0, 1) - 3.0 * mt2 * UV_term(mt2, -2.0, 2) - (UV_term(mt2, -11.0/6.0, 1) - mt2 * UV_term(mt2, -11.0/6.0, 2));
                 return g * gp / 6.0 * (Temp_term + UV_term_val);
             }
@@ -2082,8 +2127,8 @@ namespace EffectivePotential {
                 swT = std::clamp(swT, 0.0, 1.0);
                 double cwL = std::sqrt(1.0 - square(swL));
                 double cwT = std::sqrt(1.0 - square(swT));
-                double gL = (square(gp) * cwL - g * gp * swL) * (square(g) * swL - g * gp * cwL);
-                double gT = 0.0;// (square(gp) * cwT - g * gp * swT) * (square(g) * swT - g * gp * cwT);
+                double gL = (std::abs(mga2L) == 0.0) ? 0.0 : (square(gp) * cwL - g * gp * swL) * (square(g) * swL - g * gp * cwL);
+                double gT = (std::abs(mga2T) == 0.0) ? 0.0 : (square(gp) * cwT - g * gp * swT) * (square(g) * swT - g * gp * cwT);
                 return -square(phi) / 12.0 * PiTSV(mh2, mga2L, mga2T, T, gL, gT);
             }
 
@@ -2096,9 +2141,9 @@ namespace EffectivePotential {
                 double mHpm2 = MB2[4];
                 double mZ2L = MB2[6];
                 double mga2L = MB2[7];
-                double mZ2T = MB2[9];
-                double mga2T = MB2[10];
-                double swL = MB2[11];
+                double swL = MB2[8];
+                double mZ2T = MB2[10];
+                double mga2T = MB2[11];
                 double swT = MB2[12];
 
                 double Pisum = 0.0;
@@ -2162,6 +2207,7 @@ namespace EffectivePotential {
             
             // Polarization function Pi34Lff from fermion contribution
             double Pi34Lff(double mt2, double T) const {
+                if (std::abs(mt2) == 0.0) return 0.25 * g * gp * (-4.0 * DTIjf(mt2, T, 1) + 4.0 * Ijf(0.0, T, 1) );
                 return 0.25 * g * gp * (-4.0 * DTIjf(mt2, T, 1) + 4.0 * Ijf(0.0, T, 1) - 6.0 * mt2 * Ijf(mt2, T, 2) - 3.0 * mt2 * UV_term(mt2, -1.0, 2));
             }
 
@@ -2196,7 +2242,7 @@ namespace EffectivePotential {
             double Pi34Lhga(double mh2, double mga2L, double T, double phi, double swL) const {
                 swL = std::clamp(swL, 0.0, 1.0);
                 double cwL = std::sqrt(1.0 - square(swL));
-                return -0.25 * (square(gp) * cwL - g * gp * swL) * (square(g) * swL - g * gp * cwL) * square(phi) * PiLSV(mh2, mga2L, T);
+                return (std::abs(mga2L) == 0.0) ? 0.0 : -0.25 * (square(gp) * cwL - g * gp * swL) * (square(g) * swL - g * gp * cwL) * square(phi) * PiLSV(mh2, mga2L, T);
             }
 
             // Polarization function sum Pi34L3
@@ -2208,7 +2254,7 @@ namespace EffectivePotential {
                 double mHpm2 = MB2[4];
                 double mZ2L = MB2[6];
                 double mga2L = MB2[7];
-                double swL = MB2[11];
+                double swL = MB2[8];
                 
                 double Pisum = 0.0;
                 Pisum += Pi34Lff(mt2, T);
@@ -2277,7 +2323,7 @@ namespace EffectivePotential {
              * @return The loss value (norm of the difference between input and calculated masses)
              * and the new mass spectrum (vector of size 13: 11 masses + swL + swT)
              */
-            std::pair<double, std::vector<double>> calc_loss(const std::pair<std::vector<double>, std::vector<double>>& bosons, const std::vector<double>& x, double phi, double T) const {
+            std::pair<double, std::vector<double>> calc_loss(const std::pair<std::vector<double>, std::vector<double>>& bosons, const std::vector<double>& x, double phi, double T, bool PD = true) const {
                 // Tree-level boson mass spectrum and conterterms
                 const auto& [mass_squared_values, mixing_angles] = bosons;
                 const double mh2_init = mass_squared_values[0];
@@ -2291,30 +2337,25 @@ namespace EffectivePotential {
                 const double m342_init = -0.25 * g * gp * square(phi);
                 const double mt2_init = 0.5 * square(yt) * square(phi);
 
-                const double swL_init = mixing_angles[0];
-                const double swT_init = mixing_angles[1];
+                // const double swL_init = mixing_angles[0];
+                // const double swT_init = mixing_angles[1];
 
 
                 // h mass
-                double Mh2 = mh2_init + Pih4(T, x) + Pih3(T, x, mt2_init, phi);
+                double Mh2 = mh2_init + Pih4(T, x) + PD*Pih3(T, x, mt2_init, phi);
                 //std::cout << "Pih3: " << Pih3(T, x, mt2_init, phi) << std::endl;
                 // G mass
-                double MG2 = mG2_init + PiG4(T, x) + PiG3(T, x, mt2_init, phi);
-                
+                double MG2 = mG2_init + PiG4(T, x) + PD*PiG3(T, x, mt2_init, phi);    
                 // A mass
-                double MA2 = mA2_init + PiA4(T, x) + PiA3(T, x, phi);
-                
+                double MA2 = mA2_init + PiA4(T, x) + PD*PiA3(T, x, phi);
                 // H mass
-                double MH2 = mH2_init + PiH4(T, x) + PiH3(T, x, phi);
-                
+                double MH2 = mH2_init + PiH4(T, x) + PD*PiH3(T, x, phi);
                 // Hpm mass
-                double MHpm2 = mHpm2_init + PiHpm4(T, x) + PiHpm3(T, x, phi);
-                
+                double MHpm2 = mHpm2_init + PiHpm4(T, x) + PD*PiHpm3(T, x, phi);
                 // Gauge boson mass (Longitudinal): mga2L, mZ2L, swL
-                double M332L = m332_init + Pi33L4(T, x) + Pi33L3(T, x, mt2_init, phi);
-                double M442L = m442_init + Pi44L4(T, x) + Pi44L3(T, x, mt2_init, phi);
-                double M342L = m342_init + Pi34L4(T, x) + Pi34L3(T, x, mt2_init, phi);
-                
+                double M332L = m332_init + Pi33L4(T, x) + PD*Pi33L3(T, x, mt2_init, phi);
+                double M442L = m442_init + Pi44L4(T, x) + PD*Pi44L3(T, x, mt2_init, phi);
+                double M342L = m342_init + Pi34L4(T, x) + PD*Pi34L3(T, x, mt2_init, phi); 
                 // Solve for Z and photon masses (Longitudinal)
                 Eigen::Matrix2d M2Lmatrix;
                 M2Lmatrix << M332L, M342L,
@@ -2325,32 +2366,41 @@ namespace EffectivePotential {
                 double sL = std::abs(solverL.eigenvectors()(0,0));
 
                 // Gauge boson mass (Transverse): mga2T, mZ2T, swT
-                double M332T = m332_init + Pi33T4(T, x) + Pi33T3(T, x, mt2_init, phi);
-                double M442T = m442_init + Pi44T4(T, x) + Pi44T3(T, x, mt2_init, phi);
-                double M342T = m342_init + Pi34T4(T, x) + Pi34T3(T, x, mt2_init, phi);
+                // double M332T = m332_init + Pi33T4(T, x) + PD*Pi33T3(T, x, mt2_init, phi);
+                // double M442T = m442_init + Pi44T4(T, x) + PD*Pi44T3(T, x, mt2_init, phi);
+                // double M342T = m342_init + Pi34T4(T, x) + PD*Pi34T3(T, x, mt2_init, phi);
                 //std::cout << "det " << M332T*M442T - M342T*M342T << std::endl;
                 //std::cout << "Pi34T4: " << Pi34T4(T, x) << std::endl;
-                
                 // Solve for Z and photon masses (Transverse)
-                Eigen::Matrix2d M2Tmatrix;
-                M2Tmatrix << M332T, M342T,
-                             M342T, M442T;
-                Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solverT(M2Tmatrix);
-                double Mga2T = solverT.eigenvalues()[0];
-                double MZ2T = solverT.eigenvalues()[1];
-                double sT = std::abs(solverT.eigenvectors()(0,0));
+                // Eigen::Matrix2d M2Tmatrix;
+                // M2Tmatrix << M332T, M342T,
+                //              M342T, M442T;
+                // Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solverT(M2Tmatrix);
+                // double Mga2T = solverT.eigenvalues()[0];
+                // double MZ2T = solverT.eigenvalues()[1];
+                // if (std::abs(Mga2T)> std::abs(MZ2T)) {
+                //     Mga2T = solverT.eigenvalues()[1];
+                //     MZ2T = solverT.eigenvalues()[0];
+                // }
+                //std::cout << Mga2T << " " << MZ2T << std::endl;
+                // double sT = std::abs(solverT.eigenvectors()(0,0));
 
                 // Gauge boson mass (W): mW2L, mW2T
-                double MW2L = mW2_init + PiWL4(T, x) + PiWL3(T, x, mt2_init, phi);
-                double MW2T = mW2_init + PiWT4(T, x) + PiWT3(T, x, mt2_init, phi);
-                
+                double MW2L = mW2_init + PiWL4(T, x) + PD*PiWL3(T, x, mt2_init, phi);
+                // double MW2T = mW2_init + PiWT4(T, x) + PD*PiWT3(T, x, mt2_init, phi);
+                // std::cout << "x[i]: ";
+                // for (int i =0; i<13;i++) {
+                //     std::cout <<  x[i] << " ";
+                // }
+                // std::cout << std::endl;
+                //std::cout << PiWT4(T, x)<< std::endl;
                 // Construct the calculated mass squared array
-                std::vector<double> x_new = {Mh2, MG2, MA2, MH2, MHpm2, MW2L, MZ2L, Mga2L, MW2T, MZ2T, Mga2T, sL, sT};
+                std::vector<double> x_new = {Mh2, MG2, MA2, MH2, MHpm2, MW2L, MZ2L, Mga2L, sL, x[9], x[10], x[11], x[12]};
                 
                 // Calculate the difference
                 //Eigen::VectorXd deltaMB2(13); 
-                Eigen::VectorXd precise(13);
-                for (int i = 0; i < 11; ++i) {
+                Eigen::VectorXd precise(9);
+                for (int i = 0; i < 8; ++i) {
                     //deltaMB2[i] = x[i] - x_new[i];
                     if (std::abs(x[i]) <= 1e-3) {
                         precise[i] = std::abs(x[i] - x_new[i]);
@@ -2358,33 +2408,38 @@ namespace EffectivePotential {
                         precise[i] = std::abs((x[i] - x_new[i]) / x[i]);
                     }
                 }
-                //std::cout <<x[5] - x_new[5]<< " " << x_new[5] << " " << x[6] - x_new[6]<< " " << x_new[6] << " " << x[7] - x_new[7] << " " << x_new[7]<< std::endl;
                 // deltaMB2[11] = x[11] - x_new[11];
                 // deltaMB2[12] = x[12] - x_new[12];
-                precise[11] = std::abs(x[11] - x_new[11]);
-                precise[12] = std::abs(x[12] - x_new[12]);
+                precise[8] = std::abs(x[8] - x_new[8]);
+                //precise[12] = std::abs(x[12] - x_new[12]);
                 //std::vector<double> d_p = {precise.sum(), deltaMB2.norm()};
                 return make_pair(precise.sum(), x_new);
             }
 
 
-            gapEqResult solve_gap_equations(double phi, double T, double tol, const std::pair<std::vector<double>, std::vector<double>>& bosons_bare, const std::pair<std::vector<double>, std::vector<double>>& bosons_init, int max_iter = 100) const {
+            gapEqResult solve_gap_equations(double phi, double T, double tol, const std::pair<std::vector<double>, std::vector<double>>& bosons_bare, const std::pair<std::vector<double>, std::vector<double>>& bosons_init, int max_iter = 100, bool PD = true) const {
 
                 gapEqResult result;
                 //double loss = 1e10; // Initialize with a large loss value
                 std::vector<double> prev_prev(13); // previous previous mass spectrum
                 std::vector<double> prev(13); // previous mass spectrum
-                for (int i = 0; i < 11; ++i) {
+                for (int i = 0; i < 8; ++i) {
                     prev_prev[i] = bosons_init.first[i];
                     prev[i] = bosons_init.first[i];
                 }
-                prev_prev[11] = bosons_init.second[0];
-                prev_prev[12] = bosons_init.second[1];
+                prev_prev[8] = bosons_init.second[0];
+                prev_prev[9] = bosons_init.first[8];
+                prev_prev[10] = bosons_init.first[9];
+                prev_prev[11] = bosons_init.first[10];
+                prev_prev[12] = 0.48084;//bosons_init.second[1];
                 prev[11] = bosons_init.second[0];
-                prev[12] = bosons_init.second[1];
+                prev[9] = bosons_init.first[8];
+                prev[10] = bosons_init.first[9];
+                prev[11] = bosons_init.first[10];
+                prev[12] = 0.48084;//bosons_init.second[1];
                 double precise;
                 for (int iter = 0; iter < max_iter; ++iter) {
-                    auto [loss_new, x_new] = calc_loss(bosons_bare, prev, phi, T);
+                    auto [loss_new, x_new] = calc_loss(bosons_bare, prev, phi, T, PD);
                     //if (std::isnan(loss_new[1])) throw std::runtime_error("NaN encountered in loss function, x= " + std::to_string(phi));
                     precise = loss_new;
                     if (precise < tol) { //converged condition, using precise condition
@@ -2396,7 +2451,7 @@ namespace EffectivePotential {
                     }
                     else {
                         prev_prev = prev;   
-                        for (int i = 0; i < 13; ++i) {
+                        for (int i = 0; i < 9; ++i) {
                             if (iter > 50){  
                                 prev[i] = prev[i] + 0.1 * (x_new[i] - prev[i]);
                             } else {

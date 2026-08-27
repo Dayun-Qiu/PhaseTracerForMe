@@ -26,6 +26,10 @@ double J_F(double x);
 double J_B(double x, int deriv_order);
 double J_F(double x, int deriv_order);
 
+double J_B_algb(double x, int deriv_order);
+
+double J_F_algb(double x, int deriv_order);
+
 } // namespace EffectivePotential
 
 #endif // EFFECTIVEPOTENTIAL_THERMAL_FUNCTION_HPP_

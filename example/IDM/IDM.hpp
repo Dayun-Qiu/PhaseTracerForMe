@@ -18,9 +18,9 @@
 #include <interpolation.h>
 #include "effectivepotential/potential.hpp"
 #include "SelfEnergy.hpp"
-#include <thermal_funcs.h>
-#include <derivatives.h>
 #include "DRIDM_NNLO.hpp"
+#include "effectivepotential/thermal_function.hpp"
+#include "pow.hpp"
 
 namespace EffectivePotential {
 
@@ -77,11 +77,11 @@ namespace EffectivePotential {
         alglib::spline2dinterpolant MW2L;
         alglib::spline2dinterpolant MZ2L;
         alglib::spline2dinterpolant Mga2L;
-        alglib::spline2dinterpolant MW2T;
-        alglib::spline2dinterpolant MZ2T;
-        alglib::spline2dinterpolant Mga2T;
+        // alglib::spline2dinterpolant MW2T;
+        // alglib::spline2dinterpolant MZ2T;
+        // alglib::spline2dinterpolant Mga2T;
         alglib::spline2dinterpolant swL;
-        alglib::spline2dinterpolant swT;
+        // alglib::spline2dinterpolant swT;
 
         const alglib::spline2dinterpolant& get(int idx) const {
             switch (idx) {
@@ -93,11 +93,11 @@ namespace EffectivePotential {
                 case 5:  return MW2L;
                 case 6:  return MZ2L;
                 case 7:  return Mga2L;
-                case 8:  return MW2T;
-                case 9:  return MZ2T;
-                case 10: return Mga2T;
-                case 11: return swL;
-                case 12: return swT;
+                // case 8:  return MW2T;
+                // case 9:  return MZ2T;
+                // case 10: return Mga2T;
+                case 8: return swL;
+                // case 12: return swT;
                 default: throw std::out_of_range("Invalid mass index");
             }
         }
@@ -300,6 +300,7 @@ namespace EffectivePotential {
                                 mW3B2, mB2;
                     Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solver(M2matrix);
                     double mga2 = solver.eigenvalues()[0];
+                    //std::cout << square(g*gp) * square(phi) * square(phi) - square(g * gp * square(phi))<< std::endl;
                     double mZ2 = solver.eigenvalues()[1];
                     double sw = std::abs(solver.eigenvectors()(0,0));
                     std::vector<double> mSquares = {mh2, mG2, mA2, mH2, mHpm2, mW2, mZ2, mga2, mW2, mZ2, mga2};
@@ -397,11 +398,11 @@ namespace EffectivePotential {
                     double MW2L = alglib::spline2dcalc(mass_splines_.MW2L, phi, T);
                     double MZ2L = alglib::spline2dcalc(mass_splines_.MZ2L, phi, T);
                     double Mga2L = alglib::spline2dcalc(mass_splines_.Mga2L, phi, T);
-                    double MW2T = alglib::spline2dcalc(mass_splines_.MW2T, phi, T);
-                    double MZ2T = alglib::spline2dcalc(mass_splines_.MZ2T, phi, T);
-                    double Mga2T = alglib::spline2dcalc(mass_splines_.Mga2T, phi, T);
+                    double MW2T = 0.25 * square(g) * square(phi);//alglib::spline2dcalc(mass_splines_.MW2T, phi, T);
+                    double MZ2T = 0.25 * (square(g) + square(gp)) * square(phi);//alglib::spline2dcalc(mass_splines_.MZ2T, phi, T);
+                    double Mga2T = 0.0;//alglib::spline2dcalc(mass_splines_.Mga2T, phi, T);
                     double swL = alglib::spline2dcalc(mass_splines_.swL, phi, T);
-                    double swT = alglib::spline2dcalc(mass_splines_.swT, phi, T);
+                    double swT = 0.48084;//alglib::spline2dcalc(mass_splines_.swT, phi, T);
 
                     
                     std::vector<double> MSquares = {Mh2, MG2, MA2, MH2, MHpm2, MW2L, MZ2L, Mga2L, MW2T, MZ2T, Mga2T};
@@ -455,16 +456,16 @@ namespace EffectivePotential {
                     alglib::spline2ddiff(mass_splines_.MZ2L, phi, T, MZ2L, dMZ2L_dx, dMZ2L_dt);
                     double Mga2L, dMga2L_dx, dMga2L_dt;
                     alglib::spline2ddiff(mass_splines_.Mga2L, phi, T, Mga2L, dMga2L_dx, dMga2L_dt);
-                    double MW2T, dMW2T_dx, dMW2T_dt;
-                    alglib::spline2ddiff(mass_splines_.MW2T, phi, T, MW2T, dMW2T_dx, dMW2T_dt);
-                    double MZ2T, dMZ2T_dx, dMZ2T_dt;
-                    alglib::spline2ddiff(mass_splines_.MZ2T, phi, T, MZ2T, dMZ2T_dx, dMZ2T_dt);
-                    double Mga2T, dMga2T_dx, dMga2T_dt;
-                    alglib::spline2ddiff(mass_splines_.Mga2T, phi, T, Mga2T, dMga2T_dx, dMga2T_dt);
+                    double dMW2T_dx = 0.5 * square(g)*phi;
+                    //alglib::spline2ddiff(mass_splines_.MW2T, phi, T, MW2T, dMW2T_dx, dMW2T_dt);
+                    double dMZ2T_dx = 0.5 * (square(g) + square(gp))*phi;
+                    //alglib::spline2ddiff(mass_splines_.MZ2T, phi, T, MZ2T, dMZ2T_dx, dMZ2T_dt);
+                    double dMga2T_dx = 0.0;
+                    //alglib::spline2ddiff(mass_splines_.Mga2T, phi, T, Mga2T, dMga2T_dx, dMga2T_dt);
                     double swL, dswL_dx, dswL_dt;
                     alglib::spline2ddiff(mass_splines_.swL, phi, T, swL, dswL_dx, dswL_dt);
-                    double swT, dswT_dx, dswT_dt;
-                    alglib::spline2ddiff(mass_splines_.swT, phi, T, swT, dswT_dx, dswT_dt);
+                    double swT = 0.48084, dswT_dx = 0.0, dswT_dt = 0.0;
+                    //alglib::spline2ddiff(mass_splines_.swT, phi, T, swT, dswT_dx, dswT_dt);
 
                     std::vector<double> MSquares = {dMh2_dx, dMG2_dx, dMA2_dx, dMH2_dx, dMHpm2_dx, dMW2L_dx, dMZ2L_dx, dMga2L_dx, dMW2T_dx, dMZ2T_dx, dMga2T_dx};
                     std::vector<double> mixing_angles = {dswL_dx, dswT_dx};
@@ -517,18 +518,18 @@ namespace EffectivePotential {
                     alglib::spline2ddiff(mass_splines_.MZ2L, phi, T, MZ2L, dMZ2L_dx, dMZ2L_dt);
                     double Mga2L, dMga2L_dx, dMga2L_dt;
                     alglib::spline2ddiff(mass_splines_.Mga2L, phi, T, Mga2L, dMga2L_dx, dMga2L_dt);
-                    double MW2T, dMW2T_dx, dMW2T_dt;
-                    alglib::spline2ddiff(mass_splines_.MW2T, phi, T, MW2T, dMW2T_dx, dMW2T_dt);
-                    double MZ2T, dMZ2T_dx, dMZ2T_dt;
-                    alglib::spline2ddiff(mass_splines_.MZ2T, phi, T, MZ2T, dMZ2T_dx, dMZ2T_dt);
-                    double Mga2T, dMga2T_dx, dMga2T_dt;
-                    alglib::spline2ddiff(mass_splines_.Mga2T, phi, T, Mga2T, dMga2T_dx, dMga2T_dt);
+                    double dMW2T_dt = 0.0;
+                    //alglib::spline2ddiff(mass_splines_.MW2T, phi, T, MW2T, dMW2T_dx, dMW2T_dt);
+                    double dMZ2T_dt = 0.0;
+                    //alglib::spline2ddiff(mass_splines_.MZ2T, phi, T, MZ2T, dMZ2T_dx, dMZ2T_dt);
+                    double dMga2T_dt = 0.0;
+                    //alglib::spline2ddiff(mass_splines_.Mga2T, phi, T, Mga2T, dMga2T_dx, dMga2T_dt);
                     double swL, dswL_dx, dswL_dt;
                     alglib::spline2ddiff(mass_splines_.swL, phi, T, swL, dswL_dx, dswL_dt);
-                    double swT, dswT_dx, dswT_dt;
-                    alglib::spline2ddiff(mass_splines_.swT, phi, T, swT, dswT_dx, dswT_dt);
-                    std::vector<double> MSquares = {dMh2_dx, dMG2_dx, dMA2_dx, dMH2_dx, dMHpm2_dx, dMW2L_dx, dMZ2L_dx, dMga2L_dx, dMW2T_dx, dMZ2T_dx, dMga2T_dx};
-                    std::vector<double> mixing_angles = {dswL_dx, dswT_dx};
+                    double dswT_dt = 0.0;
+                    //alglib::spline2ddiff(mass_splines_.swT, phi, T, swT, dswT_dx, dswT_dt);
+                    std::vector<double> MSquares = {dMh2_dt, dMG2_dt, dMA2_dt, dMH2_dt, dMHpm2_dt, dMW2L_dt, dMZ2L_dt, dMga2L_dt, dMW2T_dt, dMZ2T_dt, dMga2T_dt};
+                    std::vector<double> mixing_angles = {dswL_dx, dswT_dt};
                     return std::make_pair(MSquares, mixing_angles);
                 } 
                 default:
@@ -602,16 +603,14 @@ namespace EffectivePotential {
 
             // boson correction
             for (size_t i = 0; i < mb2.size(); ++i) {
-                //correction += nb[i] * J_B(mb2[i] / square(T), 0);
-                correction += nb[i] * J_B_bessel(mb2[i] / square(T), 1e-6, 1e-5);
+                correction += nb[i] * J_B(mb2[i] / square(T), 0);
             }
 
             // fermion correction
             for (size_t i = 0; i < mf2.size(); ++i) {
-                //correction += nf[i] * J_F(mf2[i] / square(T), 0);
-                correction += nf[i] * J_F_bessel(mf2[i] / square(T), 1e-6, 1e-5);   
+                correction += nf[i] * J_F(mf2[i] / square(T), 0);   
             }
-
+            //std::cout << correction << std::endl;
             return correction * pow_4(T) / (2. * square(M_PI));
         }
 
@@ -684,8 +683,7 @@ namespace EffectivePotential {
             std::vector<double> ct = {square(yt) * phi}; 
             for (size_t i = 0; i < nf.size(); ++i) {
                 double x = mf2[i] / square(T);
-                //y -= 0.5 * nf[i] * ct[i] * (- 2 * T * J_F(x, 1) + 2 * x * T * J_F(x, 2)) / square(M_PI);
-                y -= 0.5 * nf[i] * ct[i] * (- 2 * T * D1_J_F_bessel(x, 1e-6, 1e-5) + 2 * x * T * D2_J_F_bessel(x, 1e-6, 1e-5)) / square(M_PI);
+                y -= 0.5 * nf[i] * ct[i] * (- 2 * T * J_F(x, 1) + 2 * x * T * J_F(x, 2)) / square(M_PI);
             }    
 
             // Boson contribution
@@ -708,8 +706,7 @@ namespace EffectivePotential {
             cb[10] = 0.0;                        // d(mga2T)/d(phi) = 0
             for (size_t i = 0; i < 11; ++i) {
                 double x = mb2[i] / square(T);
-                //y += 0.5 * nb[i] * cb[i] * ( 2 * T * J_B(x, 1) + (-2 * x * T + dmb2_dt[i]) * J_B(x, 2)) / square(M_PI);
-                y += 0.5 * nb[i] * cb[i] * ( 2 * T * D1_J_B_bessel(x, 1e-6, 1e-5) + (-2 * x * T + dmb2_dt[i]) * D2_J_B_bessel(x, 1e-6, 1e-5)) / square(M_PI);
+                y += 0.5 * nb[i] * cb[i] * ( 2 * T * J_B(x, 1) + (-2 * x * T + dmb2_dt[i]) * J_B(x, 2)) / square(M_PI);
             }
             // UV terms for transverse modes (indices 8, 9, 10 correspond to mW2T, mZ2T, mga2T)
             y += - cb[8] * UV_term(mb2[8], -2.0, 2) * dmb2_dt[8];
@@ -782,7 +779,7 @@ namespace EffectivePotential {
             switch (ResumScheme) {
                 case ResummationScheme::None:
                 case ResummationScheme::Parwani:
-                case ResummationScheme::ArnoldEspinosa:
+                case ResummationScheme::ArnoldEspinosa: 
                 case ResummationScheme::DolanJackiw:
                     return Potential::dV_dx(X, T);
                 case ResummationScheme::PartialDressing: {
@@ -982,12 +979,16 @@ namespace EffectivePotential {
             vev[0] = v0;
             std::vector<double> MB2_vec(13);
             auto [Mb2, sw] = boson_massSq(vev, 0.0, ThermalMassScheme::Tree);
-            for (int i = 0; i < 11; ++i) {
+            for (int i = 0; i < 8; ++i) {
                 MB2_vec[i] = Mb2[i];
             }
-            MB2_vec[11] = sw[0];
+            MB2_vec[8] = sw[0];
+            MB2_vec[9] = Mb2[8];
+            MB2_vec[10] = Mb2[9];
+            MB2_vec[11] = Mb2[10];
             MB2_vec[12] = sw[1];
             double eq1 = - dV1_dX(vev, 0.0, ThermalMassScheme::Tree) / v0;
+            //std::cout << eq1 << std::endl;
             double deltaZ = selfenergy.DPih3_Dp2(square(mh), MB2_vec, square(mt)) ;
             double se_term = selfenergy.Pih3Pdependent(square(mh), MB2_vec, square(mt), v0) + selfenergy.Pih4(.0, MB2_vec);
             double eq2 = deltaZ * square(mh) - se_term;
@@ -1008,13 +1009,16 @@ namespace EffectivePotential {
          */
         void init_mass_splines () {
             double phimin = 0.0, phimax = 400.0;
-            double Tmin = 0.0, Tmax = 300.0;
-            int n_phi = 400, n_T = 300;
+            double Tmin = 60.0, Tmax = 300.0;
+            int n_phi = 400, n_T = 240;
+            bool PD;
+            if (ResumScheme == ResummationScheme::PartialDressing) PD = true;
+            else PD = false;
             std::string spline_data_path = "/home/dayun/data"; // Adjust path as needed
             std::filesystem::create_directories(spline_data_path);     
             std::string M2_dat_path = spline_data_path + "/M2_" + paramNumber + ".txt";
             std::string bad_points_path = spline_data_path + "/bad_points_" + paramNumber + ".txt";
-            const int n_mass = 13; // mh2, mG2, mA2, mH2, mHpm2, mW2L, mZ2L, mga2L, mW2T, mZ2T, mga2T, swL, swT
+            const int n_mass = 9; // mh2, mG2, mA2, mH2, mHpm2, mW2L, mZ2L, mga2L, swL
             const size_t total_points = static_cast<size_t>(n_phi) * n_T;    
             // Flat storage: index = i_phi * n_T + i_T
             std::vector<double> yM_flat(total_points * n_mass, 0.0);
@@ -1036,7 +1040,7 @@ namespace EffectivePotential {
                 std::cout << "Generating mass data on grid (" << n_phi << "x" << n_T << ")..." << std::endl;
                 // Define the worker lambda to handle a range of grid points
                 // Modified to accept start/end indices and references to grid coordinates
-                auto worker = [this, n_mass, &yM_flat, &bad_points_list, &bad_points_mutex, &completed_points, total_points, start_time](
+                auto worker = [this, n_mass, &yM_flat, &bad_points_list, &bad_points_mutex, &completed_points, total_points, start_time, PD](
                     int start_idx, int end_idx, 
                     const std::vector<double>& xphi, const std::vector<double>& xT,
                     int n_T) {                   
@@ -1052,7 +1056,7 @@ namespace EffectivePotential {
                             auto bosons_bare = boson_massSq(Eigen::VectorXd::Constant(1, phi), T, ThermalMassScheme::CTterm);                            
                             // Create a local SelfEnergy instance to call the solver
                             SelfEnergy selfenergy(this->lam2, this->lamL, this->mA, this->mH, this->mHpm);
-                            gapEqResult result = selfenergy.solve_gap_equations(phi, T, 1e-2, bosons_bare, bosons_init, 500); // 1% tolerance
+                            gapEqResult result = selfenergy.solve_gap_equations(phi, T, 1e-2, bosons_bare, bosons_init, 300, PD); // 1% tolerance
                             size_t base_idx = idx * n_mass;
                             if (result.success) {
                                 for (int k = 0; k < n_mass; ++k) {
