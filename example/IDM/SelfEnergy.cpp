@@ -26,7 +26,7 @@ namespace EffectivePotential {
     double I0b(double m2, double T) {
         double x_0 = m2/square(RG_scale);
         double zero_temp_part = -(m2 / (32 * square(M_PI))) * (square(RG_scale)*xlogx(x_0) - 1.5* m2);
-        if (T <= std::numeric_limits<double>::min()) {
+        if (T <= 1e-10) {
             return zero_temp_part;
         }
         else {
@@ -36,9 +36,22 @@ namespace EffectivePotential {
         }
     }
 
+    double I0bp(double m2, double T) {
+        double x_0 = m2/square(RG_scale);
+        double zero_temp_part = -(m2 / (32 * square(M_PI))) * (square(RG_scale)*xlogx(x_0) - 1.5* m2);
+        if (T <= 1e-10) {
+            return zero_temp_part;
+        }
+        else {
+            double x_T = m2/square(T);
+            double finite_temp_part = - (pow_4(T) / square(M_PI)) * J_B0(x_T, 0);
+            return zero_temp_part + finite_temp_part;
+        }
+    }
+
     // DTI0b,  T*T *dI0b/dT2
     double DTI0b(double m2, double T) {
-        if (T <= std::numeric_limits<double>::min()) {
+        if (T <= 1e-10) {
             return 0.;
         }
         else {
@@ -52,7 +65,7 @@ namespace EffectivePotential {
     double I0f(double m2, double T) {
         double x_0 = m2/square(RG_scale);
         double zero_temp_part = -(m2 / (32 * square(M_PI))) * (square(RG_scale)*xlogx(x_0) - 1.5* m2);
-        if (T <= std::numeric_limits<double>::min()) {
+        if (T <= 1e-10) {
             return zero_temp_part;
         }
         else {
@@ -64,7 +77,7 @@ namespace EffectivePotential {
 
     // DTI0f,  T*T *dI0f/dT2
     double DTI0f(double m2, double T) {
-        if (T <= std::numeric_limits<double>::min()) {
+        if (T <= 1e-10) {
             return 0.;
         }
         else {
@@ -123,7 +136,7 @@ namespace EffectivePotential {
         else {
             double coeff = std::pow(-1, j) / factorial(j - 1);
             double zero_temp_part = zeroT_term_deriv(m2, j);
-            if (T <= std::numeric_limits<double>::min()) {
+            if (T <= 1e-10) {
                 return coeff *zero_temp_part;
             }
             else {
@@ -134,12 +147,30 @@ namespace EffectivePotential {
         }
     }
 
+    double Ijbp(double m2, double T, int j) {
+        if (j == 0) {
+            return I0bp(m2, T);
+        }
+        else {
+            double coeff = std::pow(-1, j) / factorial(j - 1);
+            double zero_temp_part = zeroT_term_deriv(m2, j);
+            if (T <= 1e-10) {
+                return coeff *zero_temp_part;
+            }
+            else {
+                double x_T = m2 / square(T);
+                double finite_temp_part = - (std::pow(T, 4 - 2*j) / square(M_PI)) * J_B0(x_T, j);
+                return coeff *(zero_temp_part + finite_temp_part);
+            }
+        }
+    }
+
     double DTIjb(double m2, double T, int j) {
         if (j == 0) {
             return DTI0b(m2, T);
         }
         else {
-            if (T <= std::numeric_limits<double>::min()) {
+            if (T <= 1e-10) {
                 return 0.;
             }
             else {
@@ -158,7 +189,7 @@ namespace EffectivePotential {
         else {
             double coeff = std::pow(-1, j) / factorial(j - 1);
             double zero_temp_part = zeroT_term_deriv(m2, j);
-            if (T <= std::numeric_limits<double>::min()) {
+            if (T <= 1e-10) {
                 return coeff *zero_temp_part;
             }
             else {
@@ -174,7 +205,7 @@ namespace EffectivePotential {
             return DTI0f(m2, T);
         }
         else {
-            if (T <= std::numeric_limits<double>::min()) {
+            if (T <= 1e-10) {
                 return 0.;
             }
             else {
@@ -196,6 +227,30 @@ namespace EffectivePotential {
         else {
             return ( Ijb(m12, T, 1) - Ijb(m22, T, 1) ) / deltaM2;
         }
+    }
+
+    double ReI20(double m2, double k, double T) {
+        if (m2 >0.0) {
+            if (std::abs(k) < 1e-6*std::sqrt(m2)) return 0.25*T/(M_PI* 2.*std::sqrt(m2)) ;
+            return 0.25*T/M_PI * std::atan(k/(2.0*std::sqrt(m2)))/k;
+        }
+        else {
+            if (k < 2.*std::sqrt(std::abs(m2))) return 0.0;
+            else return 0.125*T /k;
+        }
+    }
+
+    double ImI20(double m2, double k, double T) {
+        if (m2 >= 0.0) {
+            return 0.0;
+        }
+        else {
+            return 0.25*T /M_PI * 0.5 * std::log(std::abs((k+2.*std::sqrt(std::abs(m2)))/(k-2.*std::sqrt(std::abs(m2)))))/k;
+        }
+    }
+
+    double dI20dk(double m2, double k, double T) {
+        return (2*k*std::sqrt(m2) - (k*k + 4*m2) * std::atan(k/(2*std::sqrt(m2))))/(k*k*k*k + 4*k*k*m2);
     }
 
 } // namespace EffectivePotential

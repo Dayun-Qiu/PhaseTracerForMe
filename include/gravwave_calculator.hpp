@@ -79,6 +79,8 @@ public:
   GravWaveSpectrum calc_spectrum(double alpha, double beta_H, double Tref);
   /** Calculate GW spectrums for all the transitions */
   std::vector<GravWaveSpectrum> calc_spectrums();
+  /** Restrict the transitions used for the GW spectra (call before calc_spectrums) */
+  void set_transitions(std::vector<Transition> trans_) { trans = std::move(trans_); }
   /** Return GW spectrums for all the transitions */
   std::vector<GravWaveSpectrum> get_spectrums() const { return spectrums; }
 

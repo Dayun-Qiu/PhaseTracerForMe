@@ -8,6 +8,8 @@
 #include <complex>
 #include <filesystem>
 #include <future>
+#include <gsl/gsl_errno.h>
+#include <gsl/gsl_integration.h>
 #include <stdexcept>
 #include <string>
 #include <cmath>
@@ -21,6 +23,7 @@
 #include "DRIDM_NNLO.hpp"
 #include "effectivepotential/thermal_function.hpp"
 #include "pow.hpp"
+#include <gsl/gsl_roots.h>
 
 namespace EffectivePotential {
 
@@ -30,7 +33,8 @@ namespace EffectivePotential {
         ArnoldEspinosa,
         PartialDressing,
         DolanJackiw,
-        DR
+        DR,
+        DYQ
     };
 
     enum class ThermalMassScheme {
@@ -116,6 +120,199 @@ namespace EffectivePotential {
         double delta_lamp;
         double delta_lam3;
     };
+
+    struct Params_qawc {
+        double T;
+        double t0;
+
+        double M2;
+        double lam1;
+        double phi;
+
+        double mh2;
+        double mG2;
+    };
+
+    // ------------------------------------------------------------
+
+    // 根方程 H(t) = 0
+    //
+    // H(t) = t^2/(1-t)^2
+    //      + [M2 + PiIR(T t/(1-t))]/T^2
+    // ------------------------------------------------------------
+    inline double root_function(double t, void* params) {
+        Params_qawc* p = static_cast<Params_qawc*>(params);
+
+        const double k = p->T * t / (1.0 - t);
+
+        return t * t / ((1.0 - t) * (1.0 - t)) + (p->M2 - 4.5 * square(p->lam1*p->phi)*ReI20(p->mh2, k, p->T) - 1.5 * square(p->lam1*p->phi)*ReI20(p->mG2, k, p->T)) / (p->T * p->T);
+    }
+
+    // ------------------------------------------------------------
+    // 求 t0
+    // ------------------------------------------------------------
+    inline double find_t0(Params_qawc& p) {
+        gsl_function F;
+        F.function = &root_function;
+        F.params   = &p;
+
+        // --------------------------------------------------------
+        // 先找 bracket
+        // --------------------------------------------------------
+
+        double t_lo = 1.0e-12;
+        double t_hi = 0.5;
+
+        double f_lo = root_function(t_lo, &p);
+        double f_hi = root_function(t_hi, &p);
+
+        while (f_lo * f_hi > 0.0) {
+            t_hi = 0.5 * (1.0 + t_hi);
+
+            if (t_hi >= 1.0 - 1.0e-12)
+            {
+                std::cerr << "Cannot bracket the root.\n";
+                //std::cout << "t_lo = " << t_lo << " t_hi = " << t_hi << std::endl;
+                std::exit(EXIT_FAILURE);
+            }
+
+            f_hi = root_function(t_hi, &p);
+        }
+
+        // --------------------------------------------------------
+        // Brent
+        // --------------------------------------------------------
+
+        gsl_root_fsolver* s =
+            gsl_root_fsolver_alloc(gsl_root_fsolver_brent);
+
+        gsl_root_fsolver_set(
+            s,
+            &F,
+            t_lo,
+            t_hi
+        );
+
+        double t0 = 0.0;
+
+        for (int iter = 0; iter < 100; ++iter)
+        {
+            gsl_root_fsolver_iterate(s);
+
+            t0 = gsl_root_fsolver_root(s);
+
+            double x_lo =
+                gsl_root_fsolver_x_lower(s);
+
+            double x_hi =
+                gsl_root_fsolver_x_upper(s);
+
+            int status =
+                gsl_root_test_interval(
+                    x_lo,
+                    x_hi,
+                    1.0e-10,
+                    1.0e-10
+                );
+
+            if (status == GSL_SUCCESS)
+                break;
+        }
+
+        gsl_root_fsolver_free(s);
+
+        return t0;
+    }
+
+    //-------------------------------
+
+    //被积函数 G(t)/(t-t0)
+    // ------------------------------------------------------------
+    inline double G_qawc(double t, void *params) {
+        Params_qawc *p = static_cast<Params_qawc *>(params);
+
+        const double T  = p->T;
+        const double t0 = p->t0;
+        const double M2 = p->M2;
+        const double lam1 = p->lam1;
+        const double phi = p->phi;
+        const double mh2 = p->mh2;
+        const double mG2 = p->mG2;
+
+        const double dt = t - t0;
+
+        // Local regularization
+        constexpr double delta_t = 1e-8;
+
+        if (std::abs(dt) < delta_t)
+        {
+            const double k0 = T*t0/(1.0 - t0);
+
+            const double f0  = M2 - 4.5 * square(lam1*phi)*ReI20(mh2, k0, T) - 1.5 * square(lam1*phi)*ReI20(mG2, k0, T);
+            const double gp0 = 2.0*k0 - 4.5 * square(lam1*phi)*dI20dk(mh2, k0, T) - 1.5 * square(lam1*phi)*dI20dk(mG2, k0, T);
+
+            // lim_{t->t0} G(t) = f0/(T*gp0)；正则化只在该点取极限值，
+            // 不要引入虚假的 (1-t0)/(1-t) 因子，否则正则区与一般式导数不匹配。
+            //if (std::isnan(abs(f0/(T*gp0)))||std::isinf(abs(f0/(T*gp0)))) std::cout << "2*k0*std::sqrt(mh2) = " << 2*k0*std::sqrt(mh2) << " " << "k0 = " << k0 << " " << "mG2 = " << mG2 << std::endl;
+            return f0/(T*gp0);
+        }
+
+        const double k  = T*t /(1.0 - t);
+        const double k0 = T*t0/(1.0 - t0);
+
+        const double numerator =
+            dt * (M2 - 4.5 * square(lam1*phi)*ReI20(mh2, k, T) - 1.5 * square(lam1*phi)*ReI20(mG2, k, T));
+        const double denominator =
+            (1.0 - t)*(1.0 - t)
+            * (k*k  - 4.5 * square(lam1*phi)*ReI20(mh2, k, T) - 1.5 * square(lam1*phi)*ReI20(mG2, k, T) 
+            - k0*k0 + 4.5 * square(lam1*phi)*ReI20(mh2, k0, T) + 1.5 * square(lam1*phi)*ReI20(mG2, k0, T));
+        return numerator / denominator;
+    }
+
+    //-------------------------------
+
+    // 计算 CPV  int_0^1 G(t)/(t-t0) dt
+    // ------------------------------------------------------------
+    inline double calculate_CPV(Params_qawc *p) {
+        // 加大 workspace 让 QAWC 在小 mG2 陡变区能多细分
+        gsl_integration_workspace *workspace =
+            gsl_integration_workspace_alloc(100000);
+
+        gsl_function F;
+        F.function = &G_qawc;
+        F.params   = p;
+
+        double result = 0.0;
+        double error  = 0.0;
+
+        const int status = gsl_integration_qawc(
+            &F,
+            0.0,
+            1.0,
+            p->t0,
+            1e-6,    // 绝对容差
+            1e-6,    // 相对容差
+            100000,
+            workspace,
+            &result,
+            &error
+        );
+
+        gsl_integration_workspace_free(workspace);
+
+        if (status != GSL_SUCCESS)
+        {
+            std::cerr << "gsl_integration_qawc failed at T=" << p->T
+                    << " phi=" << p->phi << " t0=" << p->t0
+                    << " mh2=" << p->mh2 << " mG2=" << p->mG2
+                    << ": " << gsl_strerror(status) << '\n';
+            return std::nan("");   // 失败时返回 NaN，让上层走 Gauss-Kronrod 兜底
+        }
+
+        return result;
+    }
+
+
 
     class IDM : public Potential {
     public:
@@ -281,7 +478,7 @@ namespace EffectivePotential {
         // }
 
         std::pair<std::vector<double>, std::vector<double>> boson_massSq(Eigen::VectorXd X, double T, ThermalMassScheme ms) const {
-            double phi = X[0];
+            double phi = std::abs(X[0]);
 
             // tree-level boson mass spectrum
             double mh2 = mu1sq + 1.5 * lam1 * square(phi);
@@ -308,11 +505,19 @@ namespace EffectivePotential {
                     return std::make_pair(mSquares, mixing_angles);
                 }
                 case ThermalMassScheme::CTterm: { 
-                    mh2 += delta_mu1sq + 1.5 * delta_lam1 * square(phi);
-                    mG2 += delta_mu1sq + 0.5 * delta_lam1 * square(phi);
-                    mA2 += delta_mu2sq + 0.5 * delta_lamm * square(phi);
-                    mH2 += delta_mu2sq + 0.5 * delta_lamp * square(phi);
-                    mHpm2 += delta_mu2sq + 0.5 * delta_lam3 * square(phi);
+                    if (ResumScheme == ResummationScheme::DYQ) {
+                        mh2 += delta_mu1sq + 1.5 * delta_lam14 * square(phi);
+                        mG2 += delta_mu1sq + 0.5 * delta_lam14 * square(phi);
+                        mA2 += delta_mu2sq + 0.5 * delta_lamm4 * square(phi);
+                        mH2 += delta_mu2sq + 0.5 * delta_lamp4 * square(phi);
+                        mHpm2 += delta_mu2sq + 0.5 * delta_lam34 * square(phi);
+                    } else {
+                        mh2 += delta_mu1sq + 1.5 * delta_lam1 * square(phi);
+                        mG2 += delta_mu1sq + 0.5 * delta_lam1 * square(phi);
+                        mA2 += delta_mu2sq + 0.5 * delta_lamm * square(phi);
+                        mH2 += delta_mu2sq + 0.5 * delta_lamp * square(phi);
+                        mHpm2 += delta_mu2sq + 0.5 * delta_lam3 * square(phi);
+                    }
                     Eigen::Matrix2d M2matrix;
                     M2matrix << mW2, mW3B2,
                                 mW3B2, mB2;
@@ -466,9 +671,15 @@ namespace EffectivePotential {
                     alglib::spline2ddiff(mass_splines_.swL, phi, T, swL, dswL_dx, dswL_dt);
                     double swT = 0.48084, dswT_dx = 0.0, dswT_dt = 0.0;
                     //alglib::spline2ddiff(mass_splines_.swT, phi, T, swT, dswT_dx, dswT_dt);
-
-                    std::vector<double> MSquares = {dMh2_dx, dMG2_dx, dMA2_dx, dMH2_dx, dMHpm2_dx, dMW2L_dx, dMZ2L_dx, dMga2L_dx, dMW2T_dx, dMZ2T_dx, dMga2T_dx};
-                    std::vector<double> mixing_angles = {dswL_dx, dswT_dx};
+                    std::vector<double> MSquares, mixing_angles;
+                    if (X[0] < 0.0) {
+                        MSquares = {-dMh2_dx, -dMG2_dx, -dMA2_dx, -dMH2_dx, -dMHpm2_dx, -dMW2L_dx, -dMZ2L_dx, -dMga2L_dx, -dMW2T_dx, -dMZ2T_dx, -dMga2T_dx};
+                        mixing_angles = {-dswL_dx, -dswT_dx};
+                    }
+                    else {
+                        MSquares = {dMh2_dx, dMG2_dx, dMA2_dx, dMH2_dx, dMHpm2_dx, dMW2L_dx, dMZ2L_dx, dMga2L_dx, dMW2T_dx, dMZ2T_dx, dMga2T_dx};
+                        mixing_angles = {dswL_dx, dswT_dx};
+                    }
                     return std::make_pair(MSquares, mixing_angles);
                 } 
                 case ThermalMassScheme::dMdT: {
@@ -643,11 +854,6 @@ namespace EffectivePotential {
                 y -= 0.5 * nf[i] * ct[i] * Ijf(mf2[i], T, 1);
             }    
 
-            // Boson contribution
-            auto bosons = boson_massSq(X, T, ms);
-            auto nb = boson_dofs();
-            const auto& mb2 = bosons.first;
-
             std::vector<double> cb(11);
             cb[0] = 3.0 * lam1 * phi;           // d(mh2)/d(phi)
             cb[1] = lam1 * phi;                  // d(mG2)/d(phi)
@@ -661,14 +867,115 @@ namespace EffectivePotential {
             cb[9] = 0.5 * (square(g) + square(gp)) * phi;  // d(mZ2T)/d(phi)
             cb[10] = 0.0;                        // d(mga2T)/d(phi) = 0
 
-            // Boson contribution: sum(0.5 * nb * cb * Ijb(M2, T, 1))
-            for (size_t i = 0; i < 11; ++i) {
-                y += 0.5 * nb[i] * cb[i] * Ijb(mb2[i], T, 1);
+            // Boson contribution
+            auto bosons = boson_massSq(X, T, ms);
+            auto nb = boson_dofs();
+            auto& mb2 = bosons.first;
+            if (ResumScheme == ResummationScheme::DYQ) {
+                SelfEnergy selfenergy(lam2, lamL, mA, mH, mHpm);
+                const double mt2_init = 0.5 * square(yt) * square(phi);
+                std::vector<double> MB2(13), Pi(11);
+                for (int i = 0; i < 8; ++i) {
+                    MB2[i] = mb2[i];
+                }
+                MB2[8] = bosons.second[0];
+                MB2[9] = mb2[8];
+                MB2[10] = mb2[9];
+                MB2[11] = mb2[10];
+                MB2[12] = bosons.second[1];
+                Pi[0] = selfenergy.Pih3_safe(T, MB2, mt2_init, phi);
+                Pi[1] = selfenergy.PiG3(T, MB2, mt2_init, phi);
+                Pi[2] = selfenergy.PiA3(T, MB2, phi);
+                Pi[3] = selfenergy.PiH3(T, MB2, phi);
+                Pi[4] = selfenergy.PiHpm3(T, MB2, phi);
+                Pi[5] = selfenergy.PiWL3(T, MB2, mt2_init, phi);
+                Pi[6] = square(MB2[8]) * selfenergy.Pi44L3(T, MB2, mt2_init, phi) 
+                        + (1-square(MB2[8]))  * selfenergy.Pi33L3(T, MB2, mt2_init, phi) 
+                        - 2*MB2[8]*std::sqrt(1-square(MB2[8]))  * selfenergy.Pi34L3(T, MB2, mt2_init, phi);
+                Pi[7] = (1-square(MB2[8])) * selfenergy.Pi44L3(T, MB2, mt2_init, phi) 
+                        + square(MB2[8]) * selfenergy.Pi33L3(T, MB2, mt2_init, phi) 
+                        + 2*MB2[8]*std::sqrt(1-square(MB2[8]))  * selfenergy.Pi34L3(T, MB2, mt2_init, phi);
+                Pi[8] = 0.0;
+                Pi[9] = 0.0;
+                Pi[10] = 0.0;
+                for (size_t i = 2; i < 11; ++i) {
+                    y += 0.5 * nb[i] * cb[i] *  Ijbp(mb2[i], T, 1)  ;
+                    if (mb2[i] >=0.0) y += - 0.5 * nb[i] * cb[i] *0.25*T*std::sqrt(mb2[i])/M_PI;
+                }
+                // UV terms for transverse modes (indices 8, 9, 10 correspond to mW2T, mZ2T, mga2T)
+                y += cb[8] * UV_term(mb2[8], -2.0, 1);
+                y += 0.5 * cb[9] * UV_term(mb2[9], -2.0, 1);
+                y += 0.5 * cb[10] * UV_term(mb2[10], -2.0, 1);
+                //higgs nonzero mode contribution
+                y += 0.5 * nb[0] * cb[0] * Ijbp(mb2[0], T, 1);
+                // higgs zero mode contribution
+                Params_qawc p;
+                p.mh2 = mb2[0];
+                p.mG2 = mb2[1];
+                p.phi = phi;
+                p.M2 = mb2[0] + Pi[0];
+                p.T = T;
+                p.t0 = 0.0;
+                p.lam1 = lam1;
+                // Gauss-Kronrod 兜底积分：用于 QAWC 失败时或不需要 CPV 时
+                auto gauss_kronrod_integral = [&p]() -> double {
+                    using boost::math::quadrature::gauss_kronrod;
+                    auto integrand = [&p](double t) -> double {
+                        double k = p.T*t/(1-t);
+                        double PiR = - 4.5*square(p.lam1*p.phi)*ReI20(p.mh2, k, p.T) - 1.5*square(p.lam1*p.phi)*ReI20(p.mG2, k, p.T);
+                        double PiI = - 4.5*square(p.lam1*p.phi)*ImI20(p.mh2, k, p.T) - 1.5*square(p.lam1*p.phi)*ImI20(p.mG2, k, p.T);
+                        double fk = (p.M2 + PiR ) * (k*k + p.M2 + PiR) + PiI * PiI;
+                        double gk = square(k*k + p.M2 + PiR) + square(PiI);
+                        return fk/(square(1-t)*gk);
+                    };
+                    return gauss_kronrod<double, 15>::integrate(integrand, 0.0, 1.0, 20, 1e-4);
+                };
+
+                if ((mb2[1]>0.0 && mb2[0]>0.0 && (std::sqrt(mb2[1])*std::sqrt(mb2[0])*p.M2 - std::sqrt(mb2[1])*4.5*square(lam1*phi)*0.25*T/(M_PI* 2.) - std::sqrt(mb2[0])*1.5*square(lam1*phi)*0.25*T/(M_PI* 2.)) < 0)||(mb2[1]==0.0 && mb2[0]>=0.0)||(mb2[1]>=0.0 && mb2[0]==0.0)) {
+                    double t0 = find_t0(p);
+                    p.t0 = t0;
+                    // Cauchy PV via singularity subtraction:
+                    //   PV∫ G(t)/(t-t0) dt = G0*ln((1-t0)/t0) + ∫ [G(t)-G0]/(t-t0) dt
+                    // 第二项被积函数光滑（t→t0 时趋于 G'(t0)），Gauss-Kronrod 指数收敛，
+                    // 避免 QAWC 耗尽子区间预算、也避免 GK 直接对极点深度细分。
+                    using boost::math::quadrature::gauss_kronrod;
+                    const double k0 = T*t0/(1.0-t0);
+                    const double f0  = p.M2 - 4.5*square(lam1*phi)*ReI20(mb2[0], k0, T) - 1.5*square(lam1*phi)*ReI20(mb2[1], k0, T);
+                    const double gp0 = 2.0*k0 - 4.5*square(lam1*phi)*dI20dk(mb2[0], k0, T) - 1.5*square(lam1*phi)*dI20dk(mb2[1], k0, T);
+                    const double G0  = f0/(T*gp0);   // G(t0)，与 G_qawc 正则化值一致
+                    // G'(t0)：扣除项 [G(t)-G0]/(t-t0) 在 t→t0 的连续延拓值。
+                    // 用中心差分从光滑一般式估计（避开 |dt|<1e-8 正则化区），O(eps^2) 精度
+                    double Gp0 = 0.0;
+                    const double eps = std::min({1e-6, 0.3*t0, 0.3*(1.0-t0)});
+                    Gp0 = (G_qawc(t0+eps, &p) - G_qawc(t0-eps, &p))/(2.0*eps);
+ 
+
+                    auto sub_integrand = [&p, G0, Gp0](double t) -> double {
+                        const double dt = t - p.t0;
+                        // t→t0 时极限为 G'(t0)，做连续延拓，保证被积函数在 t0 处光滑
+                        if (std::abs(dt) < 1e-6) return Gp0;
+                        return (G_qawc(t, &p) - G0)/dt;
+                    };
+                    double smooth_part = gauss_kronrod<double, 15>::integrate(sub_integrand, 0.0, 1.0, 15, 1e-4);
+                    double CPV = G0*std::log((1.0-t0)/t0) + smooth_part;
+                    y += -3.*lam1*phi*square(T)*CPV/(4.*M_PI*M_PI);
+                    if (std::isnan(y)||std::isinf(y)) std::cout<< G_qawc(t0, &p) << std::endl;
+                }
+                else {
+                    double integral = gauss_kronrod_integral();
+                    y += -3.*lam1*phi*square(T)*integral/(4.*M_PI*M_PI);
+                }
             }
-            // UV terms for transverse modes (indices 8, 9, 10 correspond to mW2T, mZ2T, mga2T)
-            y += cb[8] * UV_term(mb2[8], -2.0, 1);
-            y += 0.5 * cb[9] * UV_term(mb2[9], -2.0, 1);
-            y += 0.5 * cb[10] * UV_term(mb2[10], -2.0, 1);
+            else {
+                // Boson contribution: sum(0.5 * nb * cb * Ijb(M2, T, 1))
+                for (size_t i = 0; i < 11; ++i) {
+                    y += 0.5 * nb[i] * cb[i] * Ijb(mb2[i], T, 1);
+                }
+                // UV terms for transverse modes (indices 8, 9, 10 correspond to mW2T, mZ2T, mga2T)
+                y += cb[8] * UV_term(mb2[8], -2.0, 1);
+                y += 0.5 * cb[9] * UV_term(mb2[9], -2.0, 1);
+                y += 0.5 * cb[10] * UV_term(mb2[10], -2.0, 1);
+            }
 
             return y;
         }
@@ -706,6 +1013,9 @@ namespace EffectivePotential {
             cb[10] = 0.0;                        // d(mga2T)/d(phi) = 0
             for (size_t i = 0; i < 11; ++i) {
                 double x = mb2[i] / square(T);
+                if (std::abs(cb[i]) <= 1e-10) continue;
+                // if (i<2) y += 0.5 * nb[i] * cb[i] * ( 2 * T * J_B(x, 1) + (-2 * x * T ) * J_B(x, 2)) / square(M_PI);
+                // else 
                 y += 0.5 * nb[i] * cb[i] * ( 2 * T * J_B(x, 1) + (-2 * x * T + dmb2_dt[i]) * J_B(x, 2)) / square(M_PI);
             }
             // UV terms for transverse modes (indices 8, 9, 10 correspond to mW2T, mZ2T, mga2T)
@@ -764,6 +1074,9 @@ namespace EffectivePotential {
 
             // Boson contribution: sum(0.5 * nb * cb * Ijb(M2, T, 1))
             for (size_t i = 0; i < 11; ++i) {
+                if (std::abs(cb[i]) <= 1e-10) continue;
+                // if (i<2) y += 0.5 * nb[i] * dcb_dx[i]*Ijb(mb2[i], T,  1);
+                //else 
                 y += 0.5 * nb[i] * (dcb_dx[i]*Ijb(mb2[i], T,  1) - cb[i]*Ijb(mb2[i], T, 2)*dmb2_dx[i]);
             }
             // UV terms for transverse modes (indices 8, 9, 10 correspond to mW2T, mZ2T, mga2T)
@@ -782,17 +1095,31 @@ namespace EffectivePotential {
                 case ResummationScheme::ArnoldEspinosa: 
                 case ResummationScheme::DolanJackiw:
                     return Potential::dV_dx(X, T);
+                case ResummationScheme::DYQ: 
                 case ResummationScheme::PartialDressing: {
                     double phi = X[0];
                     Eigen::VectorXd dVdX(1);
+                    double dV1dX;
+                    if (std::abs(cached_T - T) < 1e-4) {
+                        if (phi < 0.0) {
+                            dV1dX = -alglib::spline1dcalc(cached_dV1dX_splines_T, std::abs(phi));
+                        } else {
+                            dV1dX = alglib::spline1dcalc(cached_dV1dX_splines_T, std::abs(phi));
+                        }
+                    } else {
+                        dV1dX = dV1_dX(X, T, ThermalMassScheme::Exact);
+                    }
                     double dV0dX = mu1sq * phi + 0.5 * lam1 * cube(phi);
                     double dVCTdX = delta_mu1sq * phi + 0.5 * delta_lam1 * cube(phi);
-                    double dV1dX = dV1_dX(X, T, ThermalMassScheme::Exact);
                     dVdX(0) = dV0dX + dVCTdX + dV1dX;
+                    // double val = V(X, T);
+                    // double d1, d2;
+                    // alglib::spline1ddiff(cached_V_spline, phi, val, d1, d2);
+                    // dVdX(0) = d1;
                     return dVdX;
                 }
                 default: 
-                    throw std::invalid_argument("unknown ResummationScheme");
+                    return Potential::dV_dx(X, T);
                 
             }
            
@@ -812,42 +1139,42 @@ namespace EffectivePotential {
                     double phi = X[0];
                     Eigen::VectorXd result = Eigen::VectorXd::Zero(X.size());
                     
-                    for (int ii = 0; ii < X.size(); ++ii) {
-                        for (int jj = 0; jj < n_h_xy.size(); ++jj) {
-                            const double T_shifted = T + n_h_xy[jj] * h ;
-                            result(ii) += dV1_dX(X, T_shifted, ThermalMassScheme::Exact) * coeff_xy[jj] / h;
-                        }
-                    }
-                    if (std::abs(cached_phi - phi) > 1e-4) {
-                        cached_phi = phi;
-                        int n_points = 100;
-                        double t_min = 10.0;
-                        double t_max = 300.0;
-                        alglib::real_1d_array t_arr;
-                        t_arr.setlength(n_points);
-                        for (int i = 0; i < n_points; ++i) {
-                            t_arr[i] = t_min + (t_max - t_min) * i / (n_points - 1);
-                        }
-                        alglib::real_1d_array hessian_arr;
-                        hessian_arr.setlength(n_points);
-                        for (int i = 0; i < n_points; ++i) {
-                            hessian_arr[i] = d2V1_dXdT(X, t_arr[i]);
-                        }
-                        //double rho = 0.1;
-                        alglib::spline1dfitreport rep;
-                        //alglib::spline1dfit(t_arr, hessian_arr, 5, rho, cached_dV1dX_splines_phi, rep);
-                        alglib::spline1dbuildcubic(t_arr, hessian_arr, cached_dV1dX_splines_phi);
-                    }
-                    double dV1PD_dx, d2V1PD_dxdt, d2s;
-                    alglib::spline1ddiff(cached_dV1dX_splines_phi, T, dV1PD_dx, d2V1PD_dxdt, d2s);
-                    result(0) = d2V1PD_dxdt;
+                    // for (int ii = 0; ii < X.size(); ++ii) {
+                    //     for (int jj = 0; jj < n_h_xy.size(); ++jj) {
+                    //         const double T_shifted = T + n_h_xy[jj] * h ;
+                    //         result(ii) += dV1_dX(X, T_shifted, ThermalMassScheme::Exact) * coeff_xy[jj] / h;
+                    //     }
+                    // }
+                    // if (std::abs(cached_phi - phi) > 1e-4) {
+                    //     cached_phi = phi;
+                    //     int n_points = 100;
+                    //     double t_min = 10.0;
+                    //     double t_max = 300.0;
+                    //     alglib::real_1d_array t_arr;
+                    //     t_arr.setlength(n_points);
+                    //     for (int i = 0; i < n_points; ++i) {
+                    //         t_arr[i] = t_min + (t_max - t_min) * i / (n_points - 1);
+                    //     }
+                    //     alglib::real_1d_array hessian_arr;
+                    //     hessian_arr.setlength(n_points);
+                    //     for (int i = 0; i < n_points; ++i) {
+                    //         hessian_arr[i] = d2V1_dXdT(X, t_arr[i]);
+                    //     }
+                    //     //double rho = 0.1;
+                    //     alglib::spline1dfitreport rep;
+                    //     //alglib::spline1dfit(t_arr, hessian_arr, 5, rho, cached_dV1dX_splines_phi, rep);
+                    //     alglib::spline1dbuildcubic(t_arr, hessian_arr, cached_dV1dX_splines_phi);
+                    // }
+                    // double dV1PD_dx, d2V1PD_dxdt, d2s;
+                    // alglib::spline1ddiff(cached_dV1dX_splines_phi, T, dV1PD_dx, d2V1PD_dxdt, d2s);
+                    // result(0) = d2V1PD_dxdt;
+                    result(0) += d2V1_dXdT(X, T);
                     return result;
                 }
                 default: 
-                    throw std::invalid_argument("unknown ResummationScheme");
+                    return Potential::d2V_dxdt(X, T);
             }
         }
-
 
         Eigen::MatrixXd d2V_dx2(Eigen::VectorXd X, double T) const override { 
             switch (ResumScheme) {
@@ -856,6 +1183,7 @@ namespace EffectivePotential {
                 case ResummationScheme::ArnoldEspinosa:
                 case ResummationScheme::DolanJackiw:
                     return Potential::d2V_dx2(X, T);
+                case ResummationScheme::DYQ:
                 case ResummationScheme::PartialDressing: {
                     //return Potential::d2V_dx2(X, T);
                     // Numerical second derivative using analytical first derivative
@@ -869,39 +1197,41 @@ namespace EffectivePotential {
                     //         hessian(ii, ii) += dV1_dX(X_shifted, T, ThermalMassScheme::Exact) * coeff_xy[jj] / h;
                     //     }
                     // }
-                    if (std::abs(cached_T - T) > 1e-4) {
-                        cached_T = T;
-                        int n_points = 1000;
-                        double x_min = -1.0;
-                        double x_max = 400.0;
-                        alglib::real_1d_array x_arr;
-                        x_arr.setlength(n_points);
-                        for (int i = 0; i < n_points; ++i) {
-                            x_arr[i] = x_min + (x_max - x_min) * i / (n_points - 1);
-                        }
-                        alglib::real_1d_array hessian_arr;
-                        hessian_arr.setlength(n_points);
-                        for (int i = 0; i < n_points; ++i) {
-                            Eigen::VectorXd x(1);
-                            x << x_arr[i];
-                            hessian_arr[i] = dV1_dX(x, T, ThermalMassScheme::Exact);
-                        }
-                        //double rho = 0.01;
-                        alglib::spline1dfitreport rep;
-                        //alglib::spline1dfit(x_arr, hessian_arr, 5, rho, cached_dV1dX_splines_T, rep);
-                        alglib::spline1dbuildcubic(x_arr, hessian_arr, cached_dV1dX_splines_T);
-                    }
-                    double dV1PD_dx, d2V1PD_dx2, d2s;
-                    alglib::spline1ddiff(cached_dV1dX_splines_T, X[0], dV1PD_dx, d2V1PD_dx2, d2s);
-                    hessian(0, 0) += d2V1PD_dx2;
-                    //hessian(0, 0) += d2V1_dX2(X, T);
+                    // if (std::abs(cached_T - T) > 1e-4) {
+                    //     cached_T = T;
+                    //     int n_points = 1000;
+                    //     double x_min = -1.0;
+                    //     double x_max = 400.0;
+                    //     alglib::real_1d_array x_arr;
+                    //     x_arr.setlength(n_points);
+                    //     for (int i = 0; i < n_points; ++i) {
+                    //         x_arr[i] = x_min + (x_max - x_min) * i / (n_points - 1);
+                    //     }
+                    //     alglib::real_1d_array hessian_arr;
+                    //     hessian_arr.setlength(n_points);
+                    //     for (int i = 0; i < n_points; ++i) {
+                    //         Eigen::VectorXd x(1);
+                    //         x << x_arr[i];
+                    //         hessian_arr[i] = dV1_dX(x, T, ThermalMassScheme::Exact);
+                    //     }
+                    //     //double rho = 0.01;
+                    //     alglib::spline1dfitreport rep;
+                    //     alglib::spline1dbuildcubic(x_arr, hessian_arr, cached_dV1dX_splines_T);
+                    // }
+                    // double dV1PD_dx, d2V1PD_dx2, d2s;
+                    // alglib::spline1ddiff(cached_dV1dX_splines_T, X[0], dV1PD_dx, d2V1PD_dx2, d2s);
+                    // hessian(0, 0) += d2V1PD_dx2;
+                    make_dV1dX_spline(T);
+                    double d2V1dX2, d2s, dV1dX;
+                    alglib::spline1ddiff(cached_dV1dX_splines_T, std::abs(X[0]), dV1dX, d2V1dX2, d2s);
+                    hessian(0, 0) += d2V1dX2;
                     hessian(0, 0) +=  mu1sq + 1.5 * lam1 * square(X[0]);
                     hessian(0, 0) += delta_mu1sq + 1.5 * delta_lam1 * square(X[0]);
                     
                     return hessian;
                 }
                 default: 
-                    throw std::invalid_argument("unknown ResummationScheme");
+                    return Potential::d2V_dx2(X, T);
             }
         }
 
@@ -923,6 +1253,7 @@ namespace EffectivePotential {
                     auto bosons_highT = boson_massSq(X, T, ThermalMassScheme::HighT);
                     return V0(X) + V1(bosons_tree, fermions) + V1CT(X) + V1T(bosons_highT, fermions, T);
                 }
+                case ResummationScheme::DYQ:
                 case ResummationScheme::PartialDressing: {
                     // If phi equals reference point phi= 0, return 0
                     using boost::math::quadrature::gauss_kronrod;
@@ -933,7 +1264,7 @@ namespace EffectivePotential {
 
                     // if (std::abs(cached_T - T) > 1e-4) {
                     //     cached_T = T;
-                    //     int n_points = 401;
+                    //     int n_points = 2000;
                     //     double x_min = 0.0;
                     //     double x_max = 400.0;
                     //     alglib::real_1d_array x_arr;
@@ -952,24 +1283,29 @@ namespace EffectivePotential {
                     //         };
                     //         // Perform integration using Gauss-Kronrod quadrature
                     //         // 15-point rule, relative tolerance 1e-4, max iterations 50
-                    //         double V1_integrated = gauss_kronrod<double, 15>::integrate(integrand, 0.0, x_arr[i], 50, 1e-3);
+                    //         double V1_integrated = gauss_kronrod<double, 15>::integrate(integrand, 0.0, x_arr[i], 50, 1e-6);
                     //         hessian_arr[i] = V1_integrated;
-                    //         alglib::spline1dbuildcubic(x_arr, hessian_arr, cached_V_spline);
                     //     }
+                    //     alglib::spline1dbuildcubic(x_arr, hessian_arr, cached_V_spline);
                     // }         
                     // double V1 = alglib::spline1dcalc(cached_V_spline, X[0]);
-                    auto integrand = [&](double x) -> double {
-                                Eigen::VectorXd X_point(1);
-                                X_point[0] = x;
-                                return dV1_dX(X_point, T, ThermalMassScheme::Exact);
-                            };
-                    double V1_integrated = gauss_kronrod<double, 15>::integrate(integrand, 0.0, phi, 50, 1e-3);
+
+                    make_dV1dX_spline(T);
+
+                    // auto integrand = [&](double x) -> double {
+                    //             Eigen::VectorXd X_point(1);
+                    //             X_point[0] = x;
+                    //             return dV1_dX(X_point, T, ThermalMassScheme::Exact);
+                    //         };
+                    //double V1_integrated = gauss_kronrod<double, 15>::integrate(integrand, 0.0, phi, 50, 1e-4);
+                    double V1_integrated = alglib::spline1dintegrate(cached_dV1dX_splines_T, phi);
                     return V0(X) + V1CT(X) + V1_integrated;
                 }
                 default: 
                     throw std::invalid_argument("unknown ResummationScheme");
             }
         }
+        
 
 
         void calc_conterterms() {
@@ -994,11 +1330,16 @@ namespace EffectivePotential {
             double eq2 = deltaZ * square(mh) - se_term;
             delta_lam1 =  (eq2 - eq1)  / square(v0);
             delta_mu1sq = (3.0*eq1 - eq2) / 2.0;
+            delta_lam14 = - (delta_mu1sq + selfenergy.Pih4(.0, MB2_vec) ) / (1.5 * square(v0)) ;
 
             delta_lamp = - Gamma_hHH();
             delta_mu2sq = - (selfenergy.PiH3(.0, MB2_vec, v0) + selfenergy.PiH4(.0, MB2_vec) + 0.5 * delta_lamp * square(v0));
             delta_lam3 = - 2.0 * (selfenergy.PiHpm3(.0, MB2_vec, v0) + selfenergy.PiHpm4(.0, MB2_vec) + delta_mu2sq) / square(v0);
             delta_lamm = - 2.0 * (selfenergy.PiA3(.0, MB2_vec, v0) + selfenergy.PiA4(.0, MB2_vec) + delta_mu2sq) / square(v0);
+            delta_lamm4 = - (delta_mu2sq + selfenergy.PiA4(.0, MB2_vec) ) / (0.5 * square(v0)) ;
+            delta_lamp4 = - (delta_mu2sq + selfenergy.PiH4(.0, MB2_vec) ) / (0.5 * square(v0)) ;
+            delta_lam34 = - (delta_mu2sq + selfenergy.PiHpm4(.0, MB2_vec) ) / (0.5 * square(v0)) ;
+
         }
 
 
@@ -1007,17 +1348,22 @@ namespace EffectivePotential {
          * Initialize mass splines by solving gap equations on a grid asynchronously.
          * Saves results to disk and loads them into spline interpolators.
          */
-        void init_mass_splines () {
+        void init_mass_splines (bool PD) {
             double phimin = 0.0, phimax = 400.0;
-            double Tmin = 60.0, Tmax = 300.0;
-            int n_phi = 400, n_T = 240;
-            bool PD;
-            if (ResumScheme == ResummationScheme::PartialDressing) PD = true;
-            else PD = false;
+            double Tmin = 50.0, Tmax = 300.0;
+            int n_phi = 400, n_T = 250;
             std::string spline_data_path = "/home/dayun/data"; // Adjust path as needed
             std::filesystem::create_directories(spline_data_path);     
-            std::string M2_dat_path = spline_data_path + "/M2_" + paramNumber + ".txt";
-            std::string bad_points_path = spline_data_path + "/bad_points_" + paramNumber + ".txt";
+            std::string M2_dat_path;
+            std::string bad_points_path;
+            if (PD) {
+                M2_dat_path = spline_data_path + "/M2_PD_" + paramNumber + ".txt";
+                bad_points_path = spline_data_path + "/bad_points_PD_" + paramNumber + ".txt";
+            }
+            else {
+                M2_dat_path = spline_data_path + "/M2_" + paramNumber + ".txt";
+                bad_points_path = spline_data_path + "/bad_points_" + paramNumber + ".txt";
+            }
             const int n_mass = 9; // mh2, mG2, mA2, mH2, mHpm2, mW2L, mZ2L, mga2L, swL
             const size_t total_points = static_cast<size_t>(n_phi) * n_T;    
             // Flat storage: index = i_phi * n_T + i_T
@@ -1152,7 +1498,7 @@ namespace EffectivePotential {
                     std::cout << "Saved " << bad_points_list.size() << " bad points to " << bad_points_path << std::endl;
                 }
             }
-            create_mass_splines(xphi, xT, yM_flat, n_phi, n_T, n_mass);
+            create_mass_splines(xphi, xT, yM_flat, n_phi, n_T, n_mass, bad_points_path);
             //std::cout << "Mass splines has created." << std::endl;
         }
 
@@ -1160,14 +1506,38 @@ namespace EffectivePotential {
 
         mutable double cached_T = -1e10;
         mutable double cached_phi = -1e10;
-        // mutable std::array<alglib::spline1dinterpolant, 13> cached_splines_T;
-        // mutable std::array<alglib::spline1dinterpolant, 13> cached_splines_phi;
+        //mutable std::array<alglib::spline1dinterpolant, 13> cached_splines_T;
+        //mutable std::array<alglib::spline1dinterpolant, 13> cached_splines_phi;
         mutable alglib::spline1dinterpolant cached_dV1dX_splines_T;
         mutable alglib::spline1dinterpolant cached_dV1dX_splines_phi;
-        //mutable alglib::spline1dinterpolant cached_V_spline;
+        mutable alglib::spline1dinterpolant cached_V_spline;
 
         MassSplines mass_splines_;
 
+        void make_dV1dX_spline(double T) const {
+            if (std::abs(cached_T - T) > 1e-4) {
+                int n_points = 2000;
+                double x_min = 0.0;
+                double x_max = 400.0;
+                alglib::real_1d_array x_arr;
+                alglib::real_1d_array y_arr;
+                x_arr.setlength(n_points);
+                y_arr.setlength(n_points);
+                for (int i = 0; i < n_points; ++i) {
+                    x_arr[i] = x_min + (x_max - x_min) * i / (n_points - 1);
+                    y_arr[i] = dV1_dX(Eigen::VectorXd::Constant(1, x_arr[i]), T, ThermalMassScheme::Exact);
+                    if (std::isnan(y_arr[i])||std::isinf(y_arr[i])) std::cout << "Warning: dV1_dX is nan or inf at x = " << x_arr[i] << ", T = " << T << std::endl;
+                }
+                try {
+                    alglib::spline1dbuildcubic(x_arr, y_arr, cached_dV1dX_splines_T);
+                } catch (const alglib::ap_error& e)
+                {
+                    std::cout << e.msg << std::endl;
+                    std::terminate();
+                }
+                cached_T = T;
+            }
+        }
         
         void load_mass_data(const std::string& path, 
                             std::vector<double>& xphi, std::vector<double>& xT,
@@ -1262,10 +1632,9 @@ namespace EffectivePotential {
 
         void create_mass_splines(const std::vector<double>& xphi, const std::vector<double>& xT, 
                             const std::vector<double>& yM_flat, 
-                            int n_phi, int n_T, int n_mass) {
+                            int n_phi, int n_T, int n_mass, std::string bad_points_path) {
             // Build bad point mask
             std::vector<std::vector<bool>> is_bad(n_phi, std::vector<bool>(n_T, false));
-            std::string bad_points_path = "/home/dayun/data/bad_points_" + paramNumber + ".txt";
 
             if (std::filesystem::exists(bad_points_path)) {
                 std::ifstream bad_file(bad_points_path);
@@ -1526,11 +1895,15 @@ namespace EffectivePotential {
         double lam5 = 0;
 
         double delta_lam1 = 0;
+        double delta_lam14 = 0;
         double delta_mu1sq = 0;
         double delta_mu2sq = 0;
         double delta_lamm = 0;
         double delta_lamp = 0;
         double delta_lam3 = 0;
+        double delta_lamm4 = 0;
+        double delta_lamp4 = 0;
+        double delta_lam34 = 0;
 
         ResummationScheme ResumScheme = ResummationScheme::None;
 
@@ -1580,21 +1953,23 @@ namespace EffectivePotential {
             double lam5_input = 0;
 
         public:
-            IDM_DR(double lam2_input_, double lamL_input_, double mA_input_, double mH_input_, double mHpm_input_) {
+            IDM_DR(double lam2_input_, double lamL_input_, double mA_input_, double mH_input_, double mHpm_input_, ConterTermParameters counterterm_params_) {
                 lam2_input = lam2_input_;
                 lamL_input = lamL_input_;
                 mA_input = mA_input_;
                 mH_input = mH_input_;
                 mHpm_input = mHpm_input_;
-                lam1_input = square(mh/v0);
-                mu1sq_input = - 0.5 * square(mh);
+                lam1_input = square(mh/v0) + counterterm_params_.delta_lam1;
+                mu1sq_input = - 0.5 * square(mh) + counterterm_params_.delta_mu1sq;
 
-                lam4_input = (square(mA_input) + square(mH_input) - 2 * square(mHpm_input))/ square(v0);
-                lam5_input = (square(mH_input) - square(mA_input))/ square(v0);
-                lam3_input = 2 * lamL_input - lam4_input - lam5_input;
-                mu2sq_input = 0.5* (2 * square(mHpm_input) - lam3_input * square(v0));
-                lamp_input = lam3_input + lam4_input + lam5_input;
-                lamm_input = lam3_input + lam4_input - lam5_input;
+                double delta_lam4 = 0.5*( counterterm_params_.delta_lamp + counterterm_params_.delta_lamm) - counterterm_params_.delta_lam3;
+                double delta_lam5 = 0.5*( counterterm_params_.delta_lamp - counterterm_params_.delta_lamm) ;
+                lam4_input = (square(mA_input) + square(mH_input) - 2 * square(mHpm_input))/ square(v0) + delta_lam4;
+                lam5_input = (square(mH_input) - square(mA_input))/ square(v0) + delta_lam5;
+                lam3_input = 2 * lamL_input - lam4_input - lam5_input + counterterm_params_.delta_lam3;
+                mu2sq_input = 0.5* (2 * square(mHpm_input) - lam3_input * square(v0)) + counterterm_params_.delta_mu2sq;
+                lamp_input = lam3_input + lam4_input + lam5_input + counterterm_params_.delta_lamp;
+                lamm_input = lam3_input + lam4_input - lam5_input + counterterm_params_.delta_lamm;
 
 
                 std::vector<double> x0 = {gpsq_input, gsq_input, gssq_input, lam1_input, lam2_input, lam3_input, lam4_input, lam5_input, yt_input, mu1sq_input, mu2sq_input};
@@ -1744,7 +2119,6 @@ namespace EffectivePotential {
                     8. * (-16. * square(M_PI) * lam1 + 6. * Lf * square(yt) * (-square(yt) + lam1) +
                         Lb * (6. * square(lam1) + 2. * square(lam3) + 2. * lam3 * lam4 + square(lam4) + square(lam5)))
                 );
-                
                 double lam23d = -1. / (128. * square(M_PI)) * T * (
                     square(gpsq) * (-2. + 3. * Lb) + square(gsq) * (-6. + 9. * Lb) - 12. * gpsq * Lb * lam2 -
                     128. * square(M_PI) * lam2 +
@@ -1775,11 +2149,13 @@ namespace EffectivePotential {
                 //double lambdaVLL_6 = -(sqrt(gssq* gpsq)  * gssq * T) / (4. * square(M_PI));
                 double lambdaVLL_7 = (square(gssq) * T) / (4. * square(M_PI));// 2*lam-GGGG
                 double lambdaVL_1 = -((gssq * square(yt) * T) / (4. * square(M_PI)));// lam-phi-phi-GG
+                double lamppgg = lambdaVL_1;
                 double lambdaVL_2 = (sqrt(gsq) * sqrt(gpsq) * T) / (192. * square(M_PI)) * (
                     gsq * (5. + 21. * Lb - 12. * Lf) - 
                     gpsq * (-21. + Lb + 20. * Lf) + 
                     12. * (8. * square(M_PI) + square(yt) + lam1 + lam4)
                 ); // lam-phi-phi-BW
+                double lamppbw = lambdaVL_2;
                 double lambdaVL_3 = (sqrt(gsq) * sqrt(gpsq) * T) / (192. * square(M_PI)) * (
                     gsq * (5. + 21. * Lb - 12. * Lf) - 
                     gpsq * (-21. + Lb + 20. * Lf) + 
@@ -1789,6 +2165,7 @@ namespace EffectivePotential {
                     -9. * gsq + gpsq * (-39. + 2. * Lb + 40. * Lf) - 
                     4. * (24. * square(M_PI) - 17. * square(yt) + 9. * lam1 + 6. * lam3 + 3. * lam4)
                 ); // lam-phi-phi-BB
+                double lamppbb = lambdaVL_4;
                 double lambdaVL_5 = -1. / (192. * square(M_PI)) * gpsq * T * (
                     -9. * gsq + gpsq * (-39. + 2. * Lb + 40. * Lf) - 
                     12. * (8. * square(M_PI) + 3. * lam2 + 2. * lam3 + lam4)
@@ -1797,6 +2174,7 @@ namespace EffectivePotential {
                     gsq * (73. + 42. * Lb - 24. * Lf) + 
                     3. * (gpsq + 4. * (8. * square(M_PI) - 3. * square(yt) + 3. * lam1 + 2. * lam3 + lam4))
                 ); // lam-phi-phi-WW
+                double lamppww = lambdaVL_6;
                 double lambdaVL_7 = (gsq * T) / (192. * square(M_PI)) * (
                     gsq * (73. + 42. * Lb - 24. * Lf) + 
                     3. * (gpsq + 4. * (8. * square(M_PI) + 3. * lam2 + 2. * lam3 + lam4))
@@ -1962,10 +2340,16 @@ namespace EffectivePotential {
                 double musqU1 = musqU1_LO + musqU1_NLO;
                 double musqSU2 = musqSU2_LO + musqSU2_NLO;
                 double musqSU3 = musqSU3_LO + musqSU3_NLO;
+                // if ( matching_flag == 0 ) {
+                //     return {gpsq*T, gsq*T, gssq*T, lam1*T, mu1sq3d_LO, lam2*T, lam3*T, lam4*T, lam5*T, mu2sq3d_LO};
+                // } else if ( matching_flag == 1 ) {
+                //     return {gpsq3d, gsq3d, gssq3d, lam13d, mu1sq3d, lam23d, lam33d, lam43d, lam53d, mu2sq3d};
+                // }
                 if ( matching_flag == 0 ) {
-                    return {gpsq*T, gsq*T, gssq*T, lam1*T, mu1sq3d_LO, lam2*T, lam3*T, lam4*T, lam5*T, mu2sq3d_LO};
-                } else if ( matching_flag == 1 ) {
-                    return {gpsq3d, gsq3d, gssq3d, lam13d, mu1sq3d, lam23d, lam33d, lam43d, lam53d, mu2sq3d};
+                     return {gpsq*T, gsq*T, gssq*T, lam1*T, mu1sq3d_LO, lam2*T, lam3*T, lam4*T, lam5*T, mu2sq3d_LO, musqSU3_LO, musqSU2_LO, musqU1_LO, 0., 0., 0., 0.};
+                }
+                if ( matching_flag == 1 ) {
+                    return {gpsq3d, gsq3d, gssq3d, lam13d, mu1sq3d, lam23d, lam33d, lam43d, lam53d, mu2sq3d, musqSU3, musqSU2, musqU1, lamppww, lamppbb, lamppbw, lamppgg};
                 }
                 //---------------------------------
                 // integrate out temporal scalar
@@ -2034,6 +2418,7 @@ namespace EffectivePotential {
                 );
                 double mu1Sq3dUS = mu1sq3dUS_LO + mu1sq3dUS_NLO + mu1sq3dUS_beta * log(RG_scale_3DUS / RG_scale_3D);
 
+// 保留 惰性二重态
                 // double lam13dUS = lam13d - (1. / (16. * M_PI)) * (
                 //     (8. * lambdaVL_1 * lambdaVL_1) / sqrt(musqSU3) + 
                 //     (4. * lambdaVL_2 * lambdaVL_2) / (sqrt(musqSU2) + sqrt(musqU1)) + 
@@ -2117,7 +2502,7 @@ namespace EffectivePotential {
 
                 if ( matching_flag == 2 ) {
                     //return {gpsq3dUS, gsq3dUS, gssq3dUS, lam13dUS, lam23dUS, lam33dUS, lam43dUS, lam53dUS, mu1Sq3dUS, mu2sq3dUS};
-                    return {gpsq3dUS, gsq3dUS, gssq3dUS, lam13dUS, mu1Sq3dUS, .0, .0, .0, .0, .0};
+                    return {gpsq3d, gsq3d, gssq3d, lam13d, mu1sq3d, 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0., 0.};
                 }
                 return {0., 0., 0., 0., 0., 0., 0., 0., 0.0, 0.0};
             }
@@ -2125,51 +2510,78 @@ namespace EffectivePotential {
             double V(Eigen::VectorXd X, double T) const override {
     
                 const std::vector<double> par = get_3d_parameters(T);
-                std::complex<double> gpsq(par[0], 0);
-                std::complex<double> gsq(par[1], 0);
-                std::complex<double> gssq(par[2], 0);
-                std::complex<double> lam1(par[3], 0);
+                double gpsq = par[0];
+                double gsq = par[1];
+                double gssq = par[2];
+                double lam1 = par[3];
                 //std::cout << "lam1 = " << lam1 << std::endl;
-                std::complex<double> mu1sq(par[4], 0);
-                std::complex<double> lam2(par[5], 0);
-                std::complex<double> lam3(par[6], 0);
-                std::complex<double> lam4(par[7], 0);
-                std::complex<double> lam5(par[8], 0);
-                std::complex<double> mu2sq(par[9], 0);
+                double mu1sq = par[4];
+                double lam2 = par[5];
+                double lam3 = par[6];
+                double lam4 = par[7];
+                double lam5 = par[8];
+                double mu2sq = par[9];
+                double musqSU3 = par[10];
+                double musqSU2 = par[11];
+                double musqU1 = par[12];
+                double lamppww = par[13];
+                double lamppbb = par[14];
+                double lamppbw = par[15];
+                double lamppgg = par[16];
 
-                std::complex<double> phi(X[0]/sqrt(T + 1e-15),0);
+                double phi = X[0]/sqrt(T + 1e-15);
+                // B0W30 mixing
+                double M33 = 0.5 * lamppww * phi * phi + musqSU2;
+                double M44 = 0.5 * lamppbb * phi * phi + musqU1;
+                double M34 = - lamppbw * phi * phi; 
+                Eigen::Matrix2d M2matrix;
+                M2matrix << M33, M34,
+                             M34, M44;
+                Eigen::SelfAdjointEigenSolver<Eigen::Matrix2d> solver(M2matrix);
+                double Mga2L = solver.eigenvalues()[0];
+                double MZ2L = solver.eigenvalues()[1];
 
-                std::complex<double> veffLO = 0.5* pow(phi,2.)*mu1sq + 0.125*pow(phi,4.)*lam1 ;
-                //std::cout << "mu1sq = " << mu1sq << std::endl;
+               
+
+                double veffLO = 0.5* pow(phi,2.)*mu1sq + 0.125*pow(phi,4.)*lam1 ;
+                
 
                 if ( potential_flag == 0 ) {
-                    return T * veffLO.real();
+                    return T * veffLO;
                 }
 
-                std::complex<double> veffNLO = 
-                    - pow(mu1sq + 0.5 * lam1 * phi * phi, 1.5) / (4. * M_PI) - 
-                    pow(mu1sq + 1.5 * lam1 * phi * phi, 1.5) / (12. * M_PI) - 
-                    pow(mu2sq + 0.5 * lam3 * phi * phi, 1.5) / (6. * M_PI) - 
-                    pow(mu2sq + 0.5 * (lam3 + lam4 - lam5) * phi * phi, 1.5) / (12. * M_PI) - 
-                    pow(mu2sq + 0.5 * (lam3 + lam4 + lam5) * phi * phi, 1.5) / (12. * M_PI) - 
-                    2. * ( pow(gsq * phi * phi, 1.5) / (48. * M_PI) + pow((gsq + gpsq) * phi * phi, 1.5) / (96. * M_PI));
+                double veffNLO = 
+                    - pow(std::max(mu1sq + 0.5 * lam1 * phi * phi, 0.0), 1.5) / (4. * M_PI) - 
+                    pow(std::max(mu1sq + 1.5 * lam1 * phi * phi, 0.0), 1.5) / (12. * M_PI) - 
+                    pow(std::max(mu2sq + 0.5 * lam3 * phi * phi, 0.0), 1.5) / (6. * M_PI) - 
+                    pow(std::max(mu2sq + 0.5 * (lam3 + lam4 - lam5) * phi * phi, 0.0), 1.5) / (12. * M_PI) - 
+                    pow(std::max(mu2sq + 0.5 * (lam3 + lam4 + lam5) * phi * phi, 0.0), 1.5) / (12. * M_PI) - 
+                    2. * ( pow(std::max(gsq * phi * phi, 0.0), 1.5) / (48. * M_PI) + pow(std::max((gsq + gpsq) * phi * phi, 0.0), 1.5) / (96. * M_PI)) ;
+                    8. * pow(std::max(musqSU3 + 0.5* lamppgg* phi * phi, 0.0), 1.5 )/(12. * M_PI) - 
+                    pow(std::max(musqSU2 + 0.5* lamppww* phi * phi, 0.0), 1.5 )/(6. * M_PI) -
+                    pow(std::max(Mga2L, 0.0), 1.5 )/(12. * M_PI) - pow(std::max(MZ2L, 0.0), 1.5 )/(12. * M_PI);
 
                 // ensure the normalization is correct, that is, when phi = 0, Veff = 0
-                std::complex<double> veff_norm = pow(mu1sq , 1.5) / (4. * M_PI) + 
-                    pow(mu1sq , 1.5) / (12. * M_PI) + 
-                    pow(mu2sq , 1.5) / (6. * M_PI) + 
-                    pow(mu2sq , 1.5) / (12. * M_PI) + 
-                    pow(mu2sq , 1.5) / (12. * M_PI) ;
+                double veff_norm = pow(std::max(mu1sq, 0.0) , 1.5) / (4. * M_PI) + 
+                    pow(std::max(mu1sq, 0.0) , 1.5) / (12. * M_PI) + 
+                    pow(std::max(mu2sq, 0.0) , 1.5) / (6. * M_PI) + 
+                    pow(std::max(mu2sq, 0.0) , 1.5) / (12. * M_PI) + 
+                    pow(std::max(mu2sq, 0.0) , 1.5) / (12. * M_PI) ;
+                    8. * pow(std::max(musqSU3, 0.0) , 1.5) / (12. * M_PI) + 
+                    pow(std::max(musqSU2, 0.0) , 1.5) / (6. * M_PI) +
+                    pow(std::max(musqSU2, 0.0) , 1.5) / (12. * M_PI) + 
+                    pow(std::max(musqU1, 0.0) , 1.5) / (12. * M_PI);
+
 
                 if ( potential_flag == 1 ) {
-                    return T * veffLO.real() + T * veffNLO.real() + T * veff_norm.real();
+                    return T * veffLO + T * veffNLO + T * veff_norm;
                 }
 
-                if ( potential_flag == 2 ) {
-                    DRIDM_NNLO VNNLO;
-                    std::complex<double> veffNNLO = VNNLO.V2(X, T, par);
-                    return T * veffLO.real() + T * veffNLO.real() + T * veffNNLO.real();
-                }
+                // if ( potential_flag == 2 ) {
+                //     DRIDM_NNLO VNNLO;
+                //     std::complex<double> veffNNLO = VNNLO.V2(X, T, par);
+                //     return T * veffLO.real() + T * veffNLO.real() + T * veffNNLO.real();
+                // }
 
                 return 0.;
             }

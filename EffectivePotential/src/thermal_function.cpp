@@ -119,6 +119,35 @@ double J_F_algb(double x, int deriv_order) {
     }
 }
 
+double J_B0(double x, int deriv_order) {
+    constexpr double min_x = -3.72402637;
+    constexpr double max_x = 1.41e3;
+    static const auto spline = make_cubic_spline(J_B0_X_DATA, J_B0_Y_DATA);
+    static const double spline_at_min_x_val = alglib::spline1dcalc(spline, min_x);
+    if (x < min_x) {
+        if (deriv_order == 0) return spline_at_min_x_val;
+        else return 0.0;
+    }
+    else if (x > max_x) {
+        switch (deriv_order) {
+            case 0: return M_PI * std::pow(x,1.5)/6.;
+            case 1: return M_PI * std::pow(x,0.5)/4.;
+            case 2: return M_PI * std::pow(x,-0.5)/8.;
+            default: throw std::invalid_argument("Invalid derivative order");
+        } 
+    }
+    else {
+        double val, der1, der2;
+        alglib::spline1ddiff(spline, x, val, der1, der2);
+        switch (deriv_order) {
+            case 0: return val;
+            case 1: return der1;
+            case 2: return der2;
+            default: throw std::invalid_argument("Invalid derivative order");
+        }
+    }
+}
+
 
 
 // ============================================================
@@ -585,6 +614,22 @@ double J_B(
     double x,
     int n)
 {
+
+    // if (std::abs(x) < 0.1) {
+    //     switch (n) {
+    //         case 0:
+    //             return J_B_taylor(x);
+    //         case 1:
+    //             return D1_J_B_taylor(x);
+    //         case 2:
+    //             return D2_J_B_taylor(x);
+    //         case 3:
+    //             return D3_J_B_taylor(x);
+    //         default:
+    //             throw std::invalid_argument("n must be 0, 1, 2, or 3");
+    //     }
+    // }
+
     if (n <= 2) {
         return J_B_algb(x, n);
     }

@@ -52,6 +52,10 @@ public:
     T_select.shrink_to_fit();
     S_select.shrink_to_fit();
 
+    // if (T_select.size() < 3) {
+    //   return;  
+    // }
+
     // TODO: this is only for test
     MSE_pre = fit_(T_select, S_select, degree);
     LOG(debug) << "MSE of action fit (pre selection) = " << MSE_pre;
